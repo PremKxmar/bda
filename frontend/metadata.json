@@ -1,0 +1,5 @@
+{
+  "name": "TrafficAI - Smart City Intelligence",
+  "description": "A world-class real-time traffic analytics dashboard visualizing taxi trips, congestion data, and ML predictions.",
+  "requestFramePermissions": []
+}

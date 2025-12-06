@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart City Traffic - Test Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: linear-gradient(135deg, #0a0a1a 0%, #1a1a2e 100%);
+            color: #ffffff;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .header {
+            text-align: center;
+            padding: 40px 20px;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(90deg, #00d4ff, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            color: #94a3b8;
+            font-size: 1.1rem;
+        }
+        
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid #10b981;
+            padding: 8px 16px;
+            border-radius: 20px;
+            margin-top: 20px;
+        }
+        
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            background: #10b981;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .card {
+            background: rgba(26, 26, 46, 0.8);
+            border-radius: 16px;
+            padding: 24px;
+            border: 1px solid rgba(0, 212, 255, 0.2);
+            backdrop-filter: blur(10px);
+        }
+        
+        .card h3 {
+            color: #00d4ff;
+            margin-bottom: 16px;
+            font-size: 1rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .kpi-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #ffffff;
+        }
+        
+        .kpi-label {
+            color: #94a3b8;
+            font-size: 0.9rem;
+            margin-top: 4px;
+        }
+        
+        .hotspot-list {
+            list-style: none;
+        }
+        
+        .hotspot-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .hotspot-item:last-child {
+            border-bottom: none;
+        }
+        
+        .hotspot-rank {
+            background: linear-gradient(135deg, #ff6b35, #f59e0b);
+            color: white;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 0.8rem;
+        }
+        
+        .hotspot-congestion {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-weight: 600;
+        }
+        
+        .map-placeholder {
+            background: rgba(0,0,0,0.3);
+            border-radius: 12px;
+            height: 400px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border: 2px dashed rgba(0, 212, 255, 0.3);
+        }
+        
+        .map-placeholder p {
+            color: #94a3b8;
+            margin-top: 10px;
+        }
+        
+        .btn {
+            background: linear-gradient(135deg, #00d4ff, #8b5cf6);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(0, 212, 255, 0.3);
+        }
+        
+        .api-test {
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 16px;
+            font-family: monospace;
+            font-size: 0.85rem;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .footer {
+            text-align: center;
+            padding: 40px 20px;
+            color: #64748b;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(0, 212, 255, 0.3);
+            border-top-color: #00d4ff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <h1>🏙️ Smart City Traffic Intelligence</h1>
+        <p>Real-time traffic prediction powered by Big Data & AI</p>
+        <div class="status">
+            <span class="status-dot"></span>
+            <span id="api-status">Connecting to API...</span>
+        </div>
+    </header>
+    
+    <main class="grid">
+        <!-- KPI Cards -->
+        <div class="card">
+            <h3>🚕 Active Vehicles</h3>
+            <div class="kpi-value" id="vehicle-count">--</div>
+            <div class="kpi-label">Taxis in simulation</div>
+        </div>
+        
+        <div class="card">
+            <h3>🚦 Avg Congestion</h3>
+            <div class="kpi-value" id="avg-congestion">--</div>
+            <div class="kpi-label">City-wide average</div>
+        </div>
+        
+        <div class="card">
+            <h3>⚡ Avg Speed</h3>
+            <div class="kpi-value" id="avg-speed">--</div>
+            <div class="kpi-label">Miles per hour</div>
+        </div>
+        
+        <div class="card">
+            <h3>📍 Active Cells</h3>
+            <div class="kpi-value" id="total-cells">--</div>
+            <div class="kpi-label">Grid zones monitored</div>
+        </div>
+        
+        <!-- Map Placeholder -->
+        <div class="card" style="grid-column: span 2;">
+            <h3>🗺️ Traffic Map</h3>
+            <div class="map-placeholder">
+                <span style="font-size: 3rem;">🗽</span>
+                <p>Kepler.gl map will be integrated here</p>
+                <p style="font-size: 0.8rem;">Use Google AI Studio to generate the full dashboard</p>
+            </div>
+        </div>
+        
+        <!-- Hotspots -->
+        <div class="card">
+            <h3>🔥 Top Congested Zones</h3>
+            <ul class="hotspot-list" id="hotspots-list">
+                <li class="hotspot-item">
+                    <span class="loading"></span>
+                    <span>Loading...</span>
+                </li>
+            </ul>
+        </div>
+        
+        <!-- API Test -->
+        <div class="card" style="grid-column: span 2;">
+            <h3>🔧 API Test Panel</h3>
+            <p style="color: #94a3b8; margin-bottom: 16px;">Test your backend API endpoints</p>
+            <button class="btn" onclick="testAPI('/api/health')">Test Health</button>
+            <button class="btn" onclick="testAPI('/api/stats')">Test Stats</button>
+            <button class="btn" onclick="testAPI('/api/hotspots')">Test Hotspots</button>
+            <button class="btn" onclick="testAPI('/api/current-traffic?limit=5')">Test Traffic</button>
+            <div class="api-test" id="api-response">
+                Click a button to test an endpoint...
+            </div>
+        </div>
+    </main>
+    
+    <footer class="footer">
+        <p>Smart City Traffic Simulation | Final Year Big Data Project</p>
+        <p style="margin-top: 8px;">Built with Apache Spark, Kafka, Python & Kepler.gl</p>
+    </footer>
+    
+    <script>
+        const API_BASE = 'http://localhost:5000';
+        
+        // Check API connection
+        async function checkAPI() {
+            try {
+                const response = await fetch(`${API_BASE}/api/health`);
+                if (response.ok) {
+                    document.getElementById('api-status').textContent = 'Connected to API ✓';
+                    document.querySelector('.status').style.borderColor = '#10b981';
+                    loadDashboardData();
+                } else {
+                    throw new Error('API not responding');
+                }
+            } catch (error) {
+                document.getElementById('api-status').textContent = 'API Offline - Start Flask server';
+                document.querySelector('.status').style.borderColor = '#ef4444';
+                document.querySelector('.status').style.background = 'rgba(239, 68, 68, 0.1)';
+            }
+        }
+        
+        // Load dashboard data
+        async function loadDashboardData() {
+            try {
+                // Load stats
+                const statsResponse = await fetch(`${API_BASE}/api/stats`);
+                const stats = await statsResponse.json();
+                
+                document.getElementById('vehicle-count').textContent = 
+                    stats.overview.total_vehicles.toLocaleString();
+                document.getElementById('avg-congestion').textContent = 
+                    (stats.overview.avg_congestion * 100).toFixed(1) + '%';
+                document.getElementById('avg-speed').textContent = 
+                    stats.overview.avg_speed.toFixed(1) + ' mph';
+                document.getElementById('total-cells').textContent = 
+                    stats.overview.total_cells.toLocaleString();
+                
+                // Load hotspots
+                const hotspotsResponse = await fetch(`${API_BASE}/api/hotspots?limit=5`);
+                const hotspots = await hotspotsResponse.json();
+                
+                const hotspotsList = document.getElementById('hotspots-list');
+                hotspotsList.innerHTML = hotspots.hotspots.map(h => `
+                    <li class="hotspot-item">
+                        <span class="hotspot-rank">${h.rank}</span>
+                        <span>${h.cell_id}</span>
+                        <span class="hotspot-congestion">${(h.congestion_index * 100).toFixed(0)}%</span>
+                    </li>
+                `).join('');
+                
+            } catch (error) {
+                console.error('Error loading data:', error);
+            }
+        }
+        
+        // Test API endpoint
+        async function testAPI(endpoint) {
+            const responseDiv = document.getElementById('api-response');
+            responseDiv.textContent = 'Loading...';
+            
+            try {
+                const response = await fetch(`${API_BASE}${endpoint}`);
+                const data = await response.json();
+                responseDiv.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                responseDiv.textContent = `Error: ${error.message}\n\nMake sure Flask server is running:\npython src/api/app.py`;
+            }
+        }
+        
+        // Initialize
+        checkAPI();
+        
+        // Refresh data every 5 seconds
+        setInterval(() => {
+            if (document.getElementById('api-status').textContent.includes('Connected')) {
+                loadDashboardData();
+            }
+        }, 5000);
+    </script>
+</body>
+</html>

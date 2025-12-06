@@ -1,0 +1,89 @@
+# ============================================
+# Smart City Traffic - Git Ignore
+# ============================================
+
+# ----- Python -----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ----- Virtual Environment -----
+venv/
+ENV/
+env/
+.venv/
+
+# ----- Jupyter Notebooks -----
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ----- IDE -----
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ----- Data Files -----
+*.csv
+*.parquet
+*.pkl
+*.joblib
+data/raw/*.csv
+data/processed/*.parquet
+
+# ----- Models -----
+models/*.pkl
+models/*.joblib
+models/*.h5
+
+# ----- Logs -----
+*.log
+logs/
+
+# ----- Environment -----
+.env
+.env.local
+*.local
+
+# ----- Docker -----
+docker-compose.override.yml
+
+# ----- Spark -----
+spark-warehouse/
+metastore_db/
+derby.log
+
+# ----- Kafka -----
+kafka-logs/
+
+# ----- Checkpoints -----
+checkpoints/
+streaming_checkpoint/
+
+# ----- OS -----
+.DS_Store
+Thumbs.db
+
+# ----- Temporary -----
+tmp/
+temp/
+*.tmp
+*.temp

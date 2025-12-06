@@ -1,0 +1,32 @@
+{
+  "model_type": "RandomForestClassifier",
+  "trained_at": "2025-12-06T18:31:25.924669",
+  "features": [
+    "hour",
+    "avg_speed",
+    "speed_std",
+    "trip_count",
+    "avg_distance",
+    "weekend_ratio",
+    "rush_hour_ratio",
+    "cell_lat",
+    "cell_lon",
+    "is_manhattan"
+  ],
+  "metrics": {
+    "accuracy": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1_score": 1.0
+  },
+  "classes": [
+    "Low",
+    "Medium",
+    "High"
+  ],
+  "thresholds": {
+    "low": "> 20 mph",
+    "medium": "10-20 mph",
+    "high": "< 10 mph"
+  }
+}

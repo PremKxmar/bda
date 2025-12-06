@@ -1,0 +1,64 @@
+{
+  "model_type": "Spark MLlib RandomForestClassifier",
+  "trained_at": "2025-12-06T21:41:16.489412",
+  "spark_model_path": "C:\\sem6-real\\vscode2\\smart-city-traffic\\models\\spark_congestion_model",
+  "features": [
+    "hour",
+    "day_of_week",
+    "month",
+    "is_weekend",
+    "is_rush_hour",
+    "is_night",
+    "cell_lat",
+    "cell_lon",
+    "is_manhattan_int",
+    "prev_trip_count",
+    "prev_avg_speed",
+    "prev_congestion_label",
+    "prev_2h_trip_count",
+    "prev_2h_avg_speed",
+    "historical_avg_trips",
+    "historical_avg_speed"
+  ],
+  "metrics": {
+    "train_accuracy": 0.7837,
+    "test_accuracy": 0.786,
+    "test_precision": 0.7871,
+    "test_recall": 0.786,
+    "test_f1": 0.7682
+  },
+  "classes": [
+    "Low",
+    "Medium",
+    "High"
+  ],
+  "thresholds": {
+    "low": "> 20 mph",
+    "medium": "10-20 mph",
+    "high": "< 10 mph"
+  },
+  "feature_importance": {
+    "historical_avg_speed": 0.3706,
+    "prev_avg_speed": 0.1634,
+    "prev_congestion_label": 0.1365,
+    "prev_2h_avg_speed": 0.0634,
+    "cell_lon": 0.0461,
+    "prev_trip_count": 0.045,
+    "historical_avg_trips": 0.0401,
+    "hour": 0.0381,
+    "prev_2h_trip_count": 0.0341,
+    "is_night": 0.0203,
+    "cell_lat": 0.0135,
+    "is_weekend": 0.0121,
+    "day_of_week": 0.007,
+    "is_manhattan_int": 0.0052,
+    "is_rush_hour": 0.0042,
+    "month": 0.0004
+  },
+  "notes": [
+    "Model uses Spark MLlib RandomForestClassifier",
+    "avg_speed NOT included in features (prevents data leakage)",
+    "Temporal train/test split (Jan-Feb train, March test)",
+    "Uses lagged features for true prediction"
+  ]
+}

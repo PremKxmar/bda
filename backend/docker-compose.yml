@@ -1,0 +1,176 @@
+﻿# ============================================
+# Smart City Traffic - Docker Compose
+# ============================================
+# Includes: Hadoop HDFS, Kafka, Spark, and supporting services
+#
+# Usage:
+#   docker-compose up -d
+#   docker-compose logs -f
+#   docker-compose down
+# ============================================
+
+services:
+  # ===========================================
+  # HADOOP HDFS SERVICES
+  # ===========================================
+  
+  namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    container_name: namenode
+    restart: always
+    ports:
+      - "9870:9870"   # Web UI
+      - "9000:9000"   # HDFS port
+    volumes:
+      - hadoop_namenode:/hadoop/dfs/name
+      - ../data:/data  # Mount local data directory
+    environment:
+      - CLUSTER_NAME=smart-city-traffic
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - CORE_CONF_hadoop_http_staticuser_user=root
+      - HDFS_CONF_dfs_webhdfs_enabled=true
+      - HDFS_CONF_dfs_permissions_enabled=false
+      - HDFS_CONF_dfs_replication=1
+    networks:
+      - traffic-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9870"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  datanode:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: datanode
+    restart: always
+    depends_on:
+      - namenode
+    ports:
+      - "9864:9864"   # Web UI
+    volumes:
+      - hadoop_datanode:/hadoop/dfs/data
+    environment:
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - HDFS_CONF_dfs_replication=1
+    networks:
+      - traffic-network
+
+  # ===========================================
+  # KAFKA SERVICES
+  # ===========================================
+  
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    restart: always
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_logs:/var/lib/zookeeper/log
+    networks:
+      - traffic-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    restart: always
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 24
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - traffic-network
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    restart: always
+    depends_on:
+      - kafka
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: smart-city-traffic
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+    networks:
+      - traffic-network
+
+  # ===========================================
+  # SPARK SERVICES
+  # ===========================================
+  
+  spark-master:
+    image: apache/spark:3.5.0
+    container_name: spark-master
+    restart: always
+    ports:
+      - "8081:8080"   # Spark Master Web UI
+      - "7077:7077"   # Spark Master Port
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+    command: /opt/spark/sbin/start-master.sh
+    volumes:
+      - ./:/app
+      - spark_data:/opt/spark/data
+    networks:
+      - traffic-network
+
+  spark-worker:
+    image: apache/spark:3.5.0
+    container_name: spark-worker
+    restart: always
+    depends_on:
+      - spark-master
+    ports:
+      - "8082:8081"   # Spark Worker Web UI
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=4G
+      - SPARK_WORKER_CORES=2
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+    command: /opt/spark/sbin/start-worker.sh spark://spark-master:7077
+    volumes:
+      - ./:/app
+    networks:
+      - traffic-network
+
+# ===========================================
+# VOLUMES
+# ===========================================
+volumes:
+  hadoop_namenode:
+  hadoop_datanode:
+  zookeeper_data:
+  zookeeper_logs:
+  kafka_data:
+  spark_data:
+
+# ===========================================
+# NETWORKS
+# ===========================================
+networks:
+  traffic-network:
+    driver: bridge

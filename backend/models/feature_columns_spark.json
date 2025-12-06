@@ -1,0 +1,18 @@
+[
+  "hour",
+  "day_of_week",
+  "month",
+  "is_weekend",
+  "is_rush_hour",
+  "is_night",
+  "cell_lat",
+  "cell_lon",
+  "is_manhattan_int",
+  "prev_trip_count",
+  "prev_avg_speed",
+  "prev_congestion_label",
+  "prev_2h_trip_count",
+  "prev_2h_avg_speed",
+  "historical_avg_trips",
+  "historical_avg_speed"
+]

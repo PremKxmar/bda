@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart City Traffic Intelligence | NYC Real-Time Dashboard</title>
+    
+    <!-- Chart.js for analytics -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    
+    <!-- Socket.IO for real-time updates -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Leaflet JS for Map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root {
+            --bg-primary: #0a0a1a;
+            --bg-secondary: #1a1a2e;
+            --bg-card: rgba(26, 26, 46, 0.95);
+            --accent-cyan: #00d4ff;
+            --accent-orange: #ff6b35;
+            --accent-purple: #8b5cf6;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --text-primary: #ffffff;
+            --text-secondary: #94a3b8;
+            --border-color: rgba(0, 212, 255, 0.2);
+        }
+        
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        
+        /* Navigation */
+        .navbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            background: rgba(10, 10, 26, 0.95);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border-color);
+            padding: 0 24px;
+            height: 64px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .nav-brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .nav-logo {
+            font-size: 1.5rem;
+        }
+        
+        .nav-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            background: linear-gradient(90deg, var(--accent-cyan), var(--accent-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .nav-status {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid var(--success);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+        }
+        
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--success);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-dot.error {
+            background: var(--danger);
+            animation: none;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+            50% { opacity: 0.8; box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+        }
+        
+        .nav-time {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            font-family: monospace;
+        }
+        
+        /* Main Layout */
+        .main-container {
+            margin-top: 64px;
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            height: calc(100vh - 64px);
+        }
+        
+        /* Map Section */
+        .map-section {
+            position: relative;
+            background: var(--bg-secondary);
+        }
+        
+        #map-container {
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+        }
+        
+        .map-overlay {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+        }
+        
+        .map-legend {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            min-width: 160px;
+        }
+        
+        .legend-title {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 12px;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+        }
+        
+        .legend-color {
+            width: 20px;
+            height: 12px;
+            border-radius: 3px;
+        }
+        
+        .legend-color.high { background: linear-gradient(90deg, #ef4444, #dc2626); }
+        .legend-color.medium { background: linear-gradient(90deg, #f59e0b, #d97706); }
+        .legend-color.low { background: linear-gradient(90deg, #10b981, #059669); }
+        
+        /* Sidebar */
+        .sidebar {
+            background: var(--bg-secondary);
+            border-left: 1px solid var(--border-color);
+            overflow-y: auto;
+            padding: 20px;
+            padding-bottom: 60px;
+        }
+        
+        /* KPI Cards */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        
+        .kpi-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            transition: all 0.3s ease;
+        }
+        
+        .kpi-card:hover {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 20px rgba(0, 212, 255, 0.1);
+        }
+        
+        .kpi-icon {
+            font-size: 1.5rem;
+            margin-bottom: 8px;
+        }
+        
+        .kpi-value {
+            font-size: 1.6rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+        
+        .kpi-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .kpi-trend {
+            font-size: 0.8rem;
+            margin-top: 6px;
+        }
+        
+        .kpi-trend.up { color: var(--danger); }
+        .kpi-trend.down { color: var(--success); }
+        
+        /* Panels */
+        .panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            margin-bottom: 16px;
+            overflow: hidden;
+        }
+        
+        .panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .panel-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+        
+        .panel-badge {
+            background: var(--accent-cyan);
+            color: var(--bg-primary);
+            font-size: 0.7rem;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-weight: 600;
+        }
+        
+        .panel-content {
+            padding: 16px;
+        }
+        
+        /* Hotspot List */
+        .hotspot-list {
+            list-style: none;
+        }
+        
+        .hotspot-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        
+        .hotspot-item:last-child {
+            border-bottom: none;
+        }
+        
+        .hotspot-rank {
+            width: 26px;
+            height: 26px;
+            background: linear-gradient(135deg, var(--accent-orange), var(--warning));
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: 700;
+        }
+        
+        .hotspot-info {
+            flex: 1;
+        }
+        
+        .hotspot-name {
+            font-size: 0.85rem;
+            font-weight: 500;
+            margin-bottom: 2px;
+        }
+        
+        .hotspot-coords {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            font-family: monospace;
+        }
+        
+        .hotspot-congestion {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--danger);
+            padding: 4px 10px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        
+        .hotspot-congestion.medium {
+            background: rgba(245, 158, 11, 0.2);
+            color: var(--warning);
+        }
+        
+        /* Prediction List */
+        .prediction-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px;
+            background: rgba(139, 92, 246, 0.1);
+            border: 1px solid rgba(139, 92, 246, 0.2);
+            border-radius: 8px;
+            margin-bottom: 8px;
+        }
+        
+        .prediction-zone {
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+        
+        .prediction-change {
+            font-size: 0.8rem;
+            color: var(--danger);
+        }
+        
+        .prediction-change.decrease {
+            color: var(--success);
+        }
+        
+        .prediction-confidence {
+            font-size: 0.75rem;
+            color: var(--accent-purple);
+        }
+        
+        /* Chart */
+        .chart-container {
+            height: 180px;
+            position: relative;
+        }
+        
+        /* Status Bar */
+        .status-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(10, 10, 26, 0.95);
+            backdrop-filter: blur(10px);
+            border-top: 1px solid var(--border-color);
+            padding: 10px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            z-index: 1000;
+        }
+        
+        .status-items {
+            display: flex;
+            gap: 24px;
+        }
+        
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--text-secondary);
+        }
+        
+        .status-item.connected {
+            color: var(--success);
+        }
+        
+        .status-item.warning {
+            color: var(--warning);
+        }
+        
+        /* Loading State */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            flex-direction: column;
+            gap: 16px;
+        }
+        
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid var(--border-color);
+            border-top-color: var(--accent-cyan);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .main-container {
+                grid-template-columns: 1fr;
+                grid-template-rows: 60vh 1fr;
+            }
+            
+            .sidebar {
+                border-left: none;
+                border-top: 1px solid var(--border-color);
+            }
+        }
+        
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 3px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--accent-cyan);
+        }
+        
+        #leaflet-map {
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-brand">
+            <span class="nav-logo">🏙️</span>
+            <span class="nav-title">NYC Traffic Intelligence</span>
+        </div>
+        <div class="nav-status">
+            <div class="status-badge" id="connection-status">
+                <span class="status-dot" id="status-dot"></span>
+                <span id="status-text">Connecting...</span>
+            </div>
+            <span class="nav-time" id="current-time">--:--:--</span>
+        </div>
+    </nav>
+    
+    <!-- Main Content -->
+    <div class="main-container">
+        <!-- Map Section -->
+        <div class="map-section">
+            <div id="map-container">
+                <div class="loading" id="map-loading">
+                    <div class="loading-spinner"></div>
+                    <span>Loading Traffic Data...</span>
+                </div>
+                <div id="leaflet-map" style="display: none;"></div>
+            </div>
+            
+            <div class="map-overlay">
+                <div class="map-legend">
+                    <div class="legend-title">Congestion Level</div>
+                    <div class="legend-item">
+                        <div class="legend-color high"></div>
+                        <span>High (&lt;10 mph)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color medium"></div>
+                        <span>Medium (10-20 mph)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color low"></div>
+                        <span>Low (&gt;20 mph)</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <!-- KPI Cards -->
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="kpi-icon">🚕</div>
+                    <div class="kpi-value" id="kpi-vehicles">--</div>
+                    <div class="kpi-label">Active Vehicles</div>
+                    <div class="kpi-trend up" id="kpi-vehicles-trend">--</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-icon">🚦</div>
+                    <div class="kpi-value" id="kpi-congestion">--%</div>
+                    <div class="kpi-label">Avg Congestion</div>
+                    <div class="kpi-trend" id="kpi-congestion-trend">--</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-icon">⚡</div>
+                    <div class="kpi-value" id="kpi-speed">-- mph</div>
+                    <div class="kpi-label">Avg Speed</div>
+                    <div class="kpi-trend down" id="kpi-speed-trend">--</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-icon">🎯</div>
+                    <div class="kpi-value" id="kpi-accuracy">--%</div>
+                    <div class="kpi-label">ML Accuracy</div>
+                    <div class="kpi-trend" style="color: var(--accent-purple);">RandomForest</div>
+                </div>
+            </div>
+            
+            <!-- Hotspots Panel -->
+            <div class="panel">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <span>🔥</span>
+                        <span>Top Congested Zones</span>
+                    </div>
+                    <span class="panel-badge">LIVE</span>
+                </div>
+                <div class="panel-content">
+                    <ul class="hotspot-list" id="hotspot-list">
+                        <li class="hotspot-item">
+                            <div class="loading-spinner" style="width: 20px; height: 20px;"></div>
+                            <span>Loading hotspots...</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            
+            <!-- Predictions Panel -->
+            <div class="panel">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <span>🔮</span>
+                        <span>ML Predictions (15 min)</span>
+                    </div>
+                </div>
+                <div class="panel-content" id="predictions-content">
+                    <div class="prediction-item">
+                        <div class="loading-spinner" style="width: 20px; height: 20px;"></div>
+                        <span>Loading predictions...</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Chart Panel -->
+            <div class="panel">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <span>📊</span>
+                        <span>Congestion Trend</span>
+                    </div>
+                </div>
+                <div class="panel-content">
+                    <div class="chart-container">
+                        <canvas id="congestion-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Data Stats -->
+            <div class="panel">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <span>📈</span>
+                        <span>Dataset Info</span>
+                    </div>
+                </div>
+                <div class="panel-content">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; text-align: center;">
+                        <div>
+                            <div style="font-size: 1.4rem; font-weight: 700; color: var(--accent-cyan);">7+ GB</div>
+                            <div style="font-size: 0.7rem; color: var(--text-secondary);">Data Processed</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 1.4rem; font-weight: 700; color: var(--accent-orange);">46M+</div>
+                            <div style="font-size: 0.7rem; color: var(--text-secondary);">Taxi Trips</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+    </div>
+    
+    <!-- Status Bar -->
+    <div class="status-bar">
+        <div class="status-items">
+            <div class="status-item" id="api-status">
+                <span>⏳</span>
+                <span>Checking API...</span>
+            </div>
+            <div class="status-item" id="kafka-status">
+                <span>📡</span>
+                <span>Streaming Ready</span>
+            </div>
+            <div class="status-item" id="cells-status">
+                <span>📍</span>
+                <span id="cells-count">Cells: --</span>
+            </div>
+        </div>
+        <div class="status-item" id="last-update">
+            Last update: --
+        </div>
+    </div>
+    
+    <script>
+        // Configuration
+        const API_BASE = 'http://localhost:5000/api';
+        const UPDATE_INTERVAL = 5000; // 5 seconds
+        
+        // State
+        let map = null;
+        let cellLayers = {};
+        let socket = null;
+        let congestionHistory = [];
+        let chart = null;
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            updateTime();
+            setInterval(updateTime, 1000);
+            
+            initMap();
+            initChart();
+            initSocketIO();
+            
+            // Initial data fetch
+            fetchAllData();
+            
+            // Periodic updates
+            setInterval(fetchAllData, UPDATE_INTERVAL);
+        });
+        
+        // Update current time
+        function updateTime() {
+            const now = new Date();
+            document.getElementById('current-time').textContent = 
+                now.toLocaleTimeString('en-US', { hour12: false });
+        }
+        
+        // Initialize Leaflet Map
+        function initMap() {
+            // NYC coordinates
+            const nycCenter = [40.7580, -73.9855];
+            
+            map = L.map('leaflet-map', {
+                center: nycCenter,
+                zoom: 12,
+                zoomControl: false
+            });
+            
+            // Dark tile layer
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; OpenStreetMap, &copy; CARTO',
+                maxZoom: 19
+            }).addTo(map);
+            
+            // Add zoom control
+            L.control.zoom({ position: 'bottomright' }).addTo(map);
+            
+            // Show map
+            document.getElementById('map-loading').style.display = 'none';
+            document.getElementById('leaflet-map').style.display = 'block';
+        }
+        
+        // Initialize Chart
+        function initChart() {
+            const ctx = document.getElementById('congestion-chart').getContext('2d');
+            
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Avg Congestion',
+                        data: [],
+                        borderColor: '#00d4ff',
+                        backgroundColor: 'rgba(0, 212, 255, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            ticks: { color: '#94a3b8', maxTicksLimit: 6 }
+                        },
+                        y: {
+                            min: 0,
+                            max: 100,
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            ticks: { 
+                                color: '#94a3b8',
+                                callback: v => v + '%'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Initialize Socket.IO
+        function initSocketIO() {
+            try {
+                socket = io('http://localhost:5000', {
+                    transports: ['websocket', 'polling']
+                });
+                
+                socket.on('connect', () => {
+                    setConnectionStatus(true);
+                    socket.emit('subscribe', { channel: 'traffic' });
+                });
+                
+                socket.on('disconnect', () => {
+                    setConnectionStatus(false);
+                });
+                
+                socket.on('traffic_update', (data) => {
+                    console.log('Real-time update:', data);
+                    fetchCurrentTraffic();
+                });
+                
+            } catch (e) {
+                console.log('WebSocket not available, using polling');
+                setConnectionStatus(false);
+            }
+        }
+        
+        // Set connection status
+        function setConnectionStatus(connected) {
+            const dot = document.getElementById('status-dot');
+            const text = document.getElementById('status-text');
+            
+            if (connected) {
+                dot.classList.remove('error');
+                text.textContent = 'LIVE';
+            } else {
+                dot.classList.add('error');
+                text.textContent = 'Polling';
+            }
+        }
+        
+        // Fetch all data
+        async function fetchAllData() {
+            await Promise.all([
+                fetchStats(),
+                fetchCurrentTraffic(),
+                fetchHotspots(),
+                fetchPredictions()
+            ]);
+            
+            document.getElementById('last-update').textContent = 
+                `Last update: ${new Date().toLocaleTimeString()}`;
+        }
+        
+        // Fetch stats
+        async function fetchStats() {
+            try {
+                const response = await fetch(`${API_BASE}/stats`);
+                const data = await response.json();
+                
+                // Update KPIs
+                const overview = data.overview;
+                document.getElementById('kpi-vehicles').textContent = 
+                    overview.total_vehicles.toLocaleString();
+                document.getElementById('kpi-congestion').textContent = 
+                    Math.round(overview.avg_congestion * 100) + '%';
+                document.getElementById('kpi-speed').textContent = 
+                    overview.avg_speed.toFixed(1) + ' mph';
+                document.getElementById('kpi-accuracy').textContent = 
+                    Math.round(data.ml_model.accuracy * 100) + '%';
+                
+                // Update cells count
+                document.getElementById('cells-count').textContent = 
+                    `Cells: ${overview.total_cells}`;
+                
+                // Update chart
+                const now = new Date();
+                const timeLabel = now.toLocaleTimeString('en-US', { 
+                    hour: '2-digit', 
+                    minute: '2-digit' 
+                });
+                
+                congestionHistory.push({
+                    time: timeLabel,
+                    value: Math.round(overview.avg_congestion * 100)
+                });
+                
+                // Keep last 20 points
+                if (congestionHistory.length > 20) {
+                    congestionHistory.shift();
+                }
+                
+                chart.data.labels = congestionHistory.map(h => h.time);
+                chart.data.datasets[0].data = congestionHistory.map(h => h.value);
+                chart.update('none');
+                
+                // Update API status
+                document.getElementById('api-status').innerHTML = 
+                    '<span>✓</span><span>API Connected</span>';
+                document.getElementById('api-status').classList.add('connected');
+                
+            } catch (error) {
+                console.error('Failed to fetch stats:', error);
+                document.getElementById('api-status').innerHTML = 
+                    '<span>✗</span><span>API Error</span>';
+                document.getElementById('api-status').classList.remove('connected');
+                document.getElementById('api-status').classList.add('warning');
+            }
+        }
+        
+        // Fetch current traffic
+        async function fetchCurrentTraffic() {
+            try {
+                const response = await fetch(`${API_BASE}/current-traffic?limit=1000`);
+                const data = await response.json();
+                
+                updateMapCells(data.data);
+                
+            } catch (error) {
+                console.error('Failed to fetch traffic:', error);
+            }
+        }
+        
+        // Update map cells
+        function updateMapCells(cells) {
+            // Clear existing layers
+            Object.values(cellLayers).forEach(layer => map.removeLayer(layer));
+            cellLayers = {};
+            
+            cells.forEach(cell => {
+                const color = getCongestionColor(cell.congestion_level);
+                const opacity = 0.4 + cell.congestion_index * 0.4;
+                
+                const size = 0.003;
+                const bounds = [
+                    [cell.latitude - size, cell.longitude - size],
+                    [cell.latitude + size, cell.longitude + size]
+                ];
+                
+                const rect = L.rectangle(bounds, {
+                    color: color,
+                    fillColor: color,
+                    fillOpacity: opacity,
+                    weight: 1
+                });
+                
+                rect.bindPopup(`
+                    <div style="font-family: Inter, sans-serif;">
+                        <strong>${cell.cell_id}</strong><br>
+                        Congestion: ${Math.round(cell.congestion_index * 100)}%<br>
+                        Speed: ${cell.avg_speed} mph<br>
+                        Vehicles: ${cell.vehicle_count}
+                    </div>
+                `);
+                
+                rect.addTo(map);
+                cellLayers[cell.cell_id] = rect;
+            });
+        }
+        
+        // Get color based on congestion level
+        function getCongestionColor(level) {
+            switch (level) {
+                case 'high': return '#ef4444';
+                case 'medium': return '#f59e0b';
+                case 'low': return '#10b981';
+                default: return '#6b7280';
+            }
+        }
+        
+        // Fetch hotspots
+        async function fetchHotspots() {
+            try {
+                const response = await fetch(`${API_BASE}/hotspots?limit=5`);
+                const data = await response.json();
+                
+                const list = document.getElementById('hotspot-list');
+                list.innerHTML = data.hotspots.map(h => `
+                    <li class="hotspot-item">
+                        <div class="hotspot-rank">${h.rank}</div>
+                        <div class="hotspot-info">
+                            <div class="hotspot-name">${h.cell_id}</div>
+                            <div class="hotspot-coords">${h.latitude.toFixed(4)}, ${h.longitude.toFixed(4)}</div>
+                        </div>
+                        <div class="hotspot-congestion ${h.congestion_level === 'medium' ? 'medium' : ''}">
+                            ${Math.round(h.congestion_index * 100)}%
+                        </div>
+                    </li>
+                `).join('');
+                
+            } catch (error) {
+                console.error('Failed to fetch hotspots:', error);
+            }
+        }
+        
+        // Fetch predictions
+        async function fetchPredictions() {
+            try {
+                const response = await fetch(`${API_BASE}/predictions?min_confidence=0.8`);
+                const data = await response.json();
+                
+                const content = document.getElementById('predictions-content');
+                const predictions = data.predictions.slice(0, 4);
+                
+                content.innerHTML = predictions.map(p => `
+                    <div class="prediction-item">
+                        <div>
+                            <div class="prediction-zone">${p.cell_id}</div>
+                            <div class="prediction-confidence">Confidence: ${Math.round(p.confidence * 100)}%</div>
+                        </div>
+                        <div class="prediction-change ${p.change_percent < 0 ? 'decrease' : ''}">
+                            ${p.change_percent > 0 ? '↑' : '↓'} ${Math.abs(p.change_percent).toFixed(1)}%
+                        </div>
+                    </div>
+                `).join('');
+                
+            } catch (error) {
+                console.error('Failed to fetch predictions:', error);
+            }
+        }
+    </script>
+</body>
+</html>

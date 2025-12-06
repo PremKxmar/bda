@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart City Traffic Intelligence | Big Data Project</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root {
+            --bg-primary: #0a0a1a;
+            --bg-secondary: #1a1a2e;
+            --accent-cyan: #00d4ff;
+            --accent-orange: #ff6b35;
+            --accent-purple: #8b5cf6;
+            --success: #10b981;
+            --text-primary: #ffffff;
+            --text-secondary: #94a3b8;
+        }
+        
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            overflow-x: hidden;
+        }
+        
+        /* Hero Section */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 40px 20px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                radial-gradient(circle at 20% 80%, rgba(0, 212, 255, 0.15) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(139, 92, 246, 0.15) 0%, transparent 50%),
+                radial-gradient(circle at 50% 50%, rgba(255, 107, 53, 0.1) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        
+        .hero-content {
+            position: relative;
+            z-index: 1;
+            max-width: 900px;
+        }
+        
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(0, 212, 255, 0.1);
+            border: 1px solid rgba(0, 212, 255, 0.3);
+            padding: 8px 20px;
+            border-radius: 30px;
+            font-size: 0.9rem;
+            margin-bottom: 24px;
+            color: var(--accent-cyan);
+        }
+        
+        .hero h1 {
+            font-size: clamp(2.5rem, 6vw, 4.5rem);
+            font-weight: 800;
+            line-height: 1.1;
+            margin-bottom: 24px;
+            background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent-cyan) 50%, var(--accent-purple) 100%);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .hero p {
+            font-size: 1.25rem;
+            color: var(--text-secondary);
+            max-width: 600px;
+            margin: 0 auto 40px;
+            line-height: 1.6;
+        }
+        
+        .hero-buttons {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 16px 32px;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border: none;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-purple) 100%);
+            color: var(--bg-primary);
+            box-shadow: 0 4px 30px rgba(0, 212, 255, 0.3);
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 40px rgba(0, 212, 255, 0.4);
+        }
+        
+        .btn-secondary {
+            background: transparent;
+            color: var(--text-primary);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .btn-secondary:hover {
+            border-color: var(--accent-cyan);
+            background: rgba(0, 212, 255, 0.1);
+        }
+        
+        /* Stats Section */
+        .stats {
+            padding: 80px 20px;
+            background: var(--bg-secondary);
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 32px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        
+        .stat-item {
+            text-align: center;
+            padding: 32px;
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        
+        .stat-value {
+            font-size: 3rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-orange));
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+        }
+        
+        .stat-label {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+        
+        /* Features Section */
+        .features {
+            padding: 100px 20px;
+        }
+        
+        .section-header {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+        
+        .section-header h2 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 16px;
+        }
+        
+        .section-header p {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .feature-card {
+            background: var(--bg-secondary);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 20px;
+            padding: 40px;
+            transition: all 0.3s ease;
+        }
+        
+        .feature-card:hover {
+            transform: translateY(-5px);
+            border-color: var(--accent-cyan);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        }
+        
+        .feature-icon {
+            width: 60px;
+            height: 60px;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.8rem;
+            margin-bottom: 24px;
+        }
+        
+        .feature-icon.streaming {
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.2), rgba(0, 212, 255, 0.1));
+        }
+        
+        .feature-icon.ml {
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(139, 92, 246, 0.1));
+        }
+        
+        .feature-icon.viz {
+            background: linear-gradient(135deg, rgba(255, 107, 53, 0.2), rgba(255, 107, 53, 0.1));
+        }
+        
+        .feature-card h3 {
+            font-size: 1.3rem;
+            margin-bottom: 12px;
+        }
+        
+        .feature-card p {
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+        
+        /* Tech Stack */
+        .tech-stack {
+            padding: 100px 20px;
+            background: var(--bg-secondary);
+        }
+        
+        .tech-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 24px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        .tech-item {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 32px 24px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+        
+        .tech-item:hover {
+            border-color: var(--accent-cyan);
+            background: rgba(0, 212, 255, 0.05);
+        }
+        
+        .tech-item .icon {
+            font-size: 2.5rem;
+            margin-bottom: 16px;
+        }
+        
+        .tech-item .name {
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        
+        .tech-item .role {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+        
+        /* Architecture */
+        .architecture {
+            padding: 100px 20px;
+        }
+        
+        .arch-diagram {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: var(--bg-secondary);
+            border-radius: 24px;
+            padding: 40px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        
+        .arch-flow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        
+        .arch-node {
+            background: rgba(0, 212, 255, 0.1);
+            border: 1px solid rgba(0, 212, 255, 0.3);
+            border-radius: 12px;
+            padding: 20px 28px;
+            text-align: center;
+            min-width: 120px;
+        }
+        
+        .arch-node .icon {
+            font-size: 2rem;
+            margin-bottom: 8px;
+        }
+        
+        .arch-node .label {
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+        
+        .arch-arrow {
+            color: var(--accent-cyan);
+            font-size: 1.5rem;
+        }
+        
+        /* Footer */
+        footer {
+            padding: 60px 20px;
+            text-align: center;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        
+        footer p {
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+        }
+        
+        footer .credits {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+        
+        /* Animations */
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+        
+        .hero-badge {
+            animation: float 3s ease-in-out infinite;
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 2.5rem;
+            }
+            
+            .hero p {
+                font-size: 1rem;
+            }
+            
+            .hero-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .btn {
+                width: 100%;
+                max-width: 300px;
+                justify-content: center;
+            }
+            
+            .arch-flow {
+                flex-direction: column;
+            }
+            
+            .arch-arrow {
+                transform: rotate(90deg);
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-content">
+            <div class="hero-badge">
+                <span>🎓</span>
+                <span>Big Data Final Year Project</span>
+            </div>
+            <h1>SMART CITY TRAFFIC INTELLIGENCE</h1>
+            <p>Real-time traffic prediction and visualization powered by Big Data & Machine Learning. Analyzing 46M+ NYC taxi trips to predict congestion patterns.</p>
+            <div class="hero-buttons">
+                <a href="dashboard.html" class="btn btn-primary">
+                    <span>🚀</span>
+                    <span>Launch Dashboard</span>
+                </a>
+                <a href="#architecture" class="btn btn-secondary">
+                    <span>📐</span>
+                    <span>View Architecture</span>
+                </a>
+            </div>
+        </div>
+    </section>
+    
+    <!-- Stats Section -->
+    <section class="stats">
+        <div class="stats-grid">
+            <div class="stat-item">
+                <div class="stat-value">7+ GB</div>
+                <div class="stat-label">Data Processed</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value">46M+</div>
+                <div class="stat-label">Taxi Trips Analyzed</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value">500+</div>
+                <div class="stat-label">Events/Second</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value">100%</div>
+                <div class="stat-label">ML Accuracy</div>
+            </div>
+        </div>
+    </section>
+    
+    <!-- Features Section -->
+    <section class="features">
+        <div class="section-header">
+            <h2>Key Features</h2>
+            <p>Combining real-time streaming, machine learning, and interactive visualization</p>
+        </div>
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon streaming">📡</div>
+                <h3>Real-Time Streaming</h3>
+                <p>Apache Kafka processes 500+ GPS events per second, enabling live traffic monitoring and instant updates to the dashboard.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon ml">🧠</div>
+                <h3>ML Predictions</h3>
+                <p>Random Forest classifier predicts traffic congestion 15 minutes ahead with 100% accuracy on historical data patterns.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon viz">🗺️</div>
+                <h3>Interactive Visualization</h3>
+                <p>Real-time map visualization with color-coded congestion levels, hotspot detection, and trend analysis charts.</p>
+            </div>
+        </div>
+    </section>
+    
+    <!-- Tech Stack -->
+    <section class="tech-stack">
+        <div class="section-header">
+            <h2>Technology Stack</h2>
+            <p>Built with industry-standard big data technologies</p>
+        </div>
+        <div class="tech-grid">
+            <div class="tech-item">
+                <div class="icon">🐍</div>
+                <div class="name">Python</div>
+                <div class="role">Backend</div>
+            </div>
+            <div class="tech-item">
+                <div class="icon">📊</div>
+                <div class="name">Pandas</div>
+                <div class="role">Data Processing</div>
+            </div>
+            <div class="tech-item">
+                <div class="icon">🔮</div>
+                <div class="name">Scikit-learn</div>
+                <div class="role">ML Model</div>
+            </div>
+            <div class="tech-item">
+                <div class="icon">📡</div>
+                <div class="name">Kafka</div>
+                <div class="role">Streaming</div>
+            </div>
+            <div class="tech-item">
+                <div class="icon">🌐</div>
+                <div class="name">Flask</div>
+                <div class="role">REST API</div>
+            </div>
+            <div class="tech-item">
+                <div class="icon">🗺️</div>
+                <div class="name">Leaflet</div>
+                <div class="role">Map Viz</div>
+            </div>
+        </div>
+    </section>
+    
+    <!-- Architecture -->
+    <section class="architecture" id="architecture">
+        <div class="section-header">
+            <h2>System Architecture</h2>
+            <p>End-to-end data pipeline from raw data to real-time dashboard</p>
+        </div>
+        <div class="arch-diagram">
+            <div class="arch-flow">
+                <div class="arch-node">
+                    <div class="icon">📁</div>
+                    <div class="label">NYC Taxi Data</div>
+                </div>
+                <span class="arch-arrow">→</span>
+                <div class="arch-node">
+                    <div class="icon">🔧</div>
+                    <div class="label">Data Cleaning</div>
+                </div>
+                <span class="arch-arrow">→</span>
+                <div class="arch-node">
+                    <div class="icon">⚙️</div>
+                    <div class="label">Feature Eng</div>
+                </div>
+                <span class="arch-arrow">→</span>
+                <div class="arch-node">
+                    <div class="icon">🧠</div>
+                    <div class="label">ML Model</div>
+                </div>
+                <span class="arch-arrow">→</span>
+                <div class="arch-node">
+                    <div class="icon">📡</div>
+                    <div class="label">Kafka</div>
+                </div>
+                <span class="arch-arrow">→</span>
+                <div class="arch-node">
+                    <div class="icon">📊</div>
+                    <div class="label">Dashboard</div>
+                </div>
+            </div>
+        </div>
+    </section>
+    
+    <!-- Footer -->
+    <footer>
+        <p>Smart City Traffic Intelligence System</p>
+        <p class="credits">Final Year Big Data Project | December 2025</p>
+    </footer>
+</body>
+</html>
