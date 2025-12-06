@@ -11,6 +11,8 @@ __pycache__/
 # Data (Too large for GitHub)
 data/raw/*.csv
 *.csv
+*.parquet
+data/processed/*.parquet
 
 # Build
 dist/
