@@ -68,39 +68,39 @@ const Map: React.FC<MapProps> = ({ events, hotspots }) => {
           case 'high':
             color = '#ef4444'; // Red
             glowColor = 'rgba(239, 68, 68, 0.4)';
-            fillOpacity = 0.5 + congestionValue * 0.3;
-            radius = 280 + congestionValue * 120; // Larger for high congestion
+            fillOpacity = 0.4;
+            radius = 120 + congestionValue * 60;
             break;
           case 'medium':
             color = '#f59e0b'; // Amber
             glowColor = 'rgba(245, 158, 11, 0.3)';
-            fillOpacity = 0.4 + congestionValue * 0.2;
-            radius = 250 + congestionValue * 80;
+            fillOpacity = 0.3;
+            radius = 100 + congestionValue * 40;
             break;
           case 'low':
           default:
             color = '#10b981'; // Green
             glowColor = 'rgba(16, 185, 129, 0.25)';
-            fillOpacity = 0.3 + congestionValue * 0.15;
-            radius = 220 + congestionValue * 60;
+            fillOpacity = 0.2;
+            radius = 80 + congestionValue * 30;
         }
       } else {
         // Fallback to speed-based coloring
         if (event.speed < 15) {
           color = '#ef4444';
           glowColor = 'rgba(239, 68, 68, 0.4)';
-          fillOpacity = 0.6;
-          radius = 320;
+          fillOpacity = 0.4;
+          radius = 140;
         } else if (event.speed < 30) {
           color = '#f59e0b';
           glowColor = 'rgba(245, 158, 11, 0.3)';
-          fillOpacity = 0.45;
-          radius = 280;
+          fillOpacity = 0.3;
+          radius = 120;
         } else {
           color = '#10b981';
           glowColor = 'rgba(16, 185, 129, 0.25)';
-          fillOpacity = 0.35;
-          radius = 240;
+          fillOpacity = 0.2;
+          radius = 100;
         }
       }
 
@@ -108,8 +108,8 @@ const Map: React.FC<MapProps> = ({ events, hotspots }) => {
       const outerGlow = L.circle([event.lat, event.lng], {
         color: 'transparent',
         fillColor: color,
-        fillOpacity: fillOpacity * 0.3,
-        radius: radius * 1.5,
+        fillOpacity: fillOpacity * 0.2,
+        radius: radius * 1.3,
         weight: 0
       });
       outerGlow.addTo(map);
