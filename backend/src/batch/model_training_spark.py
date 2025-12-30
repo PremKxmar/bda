@@ -3,22 +3,22 @@ Smart City Traffic - Spark MLlib Model Training Module
 =======================================================
 
 This script trains ML models for congestion prediction using Apache Spark MLlib:
+- Reads training features from HDFS or local filesystem
 - Random Forest Classifier (primary model)
 - Proper train/test split (temporal - no data leakage)
 - Feature scaling and pipeline
 - Model evaluation and metrics
-- Saves trained model for API inference
+- Saves trained model to HDFS or local
 
 Key Changes from Original:
 - Uses Spark MLlib instead of Scikit-learn
+- Supports HDFS for distributed storage
 - Temporal train/test split (Jan-Feb train, March test)
 - No avg_speed in features (prevents data leakage)
-- Realistic accuracy (70-85% instead of 100%)
 
 Usage:
-    spark-submit src/batch/model_training_spark.py
-    OR
-    python src/batch/model_training_spark.py
+    python src/batch/model_training_spark.py             # Local mode
+    python src/batch/model_training_spark.py --hdfs      # HDFS mode
 """
 
 import os
@@ -26,6 +26,7 @@ import sys
 from pathlib import Path
 from datetime import datetime
 import json
+import argparse
 
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, when, count
@@ -45,16 +46,36 @@ from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# Configuration
-DATA_DIR = PROJECT_ROOT / "data" / "processed"
-MODELS_DIR = PROJECT_ROOT / "models"
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
+
+# HDFS Configuration
+HDFS_NAMENODE = "hdfs://localhost:9000"
+HDFS_FEATURES_DIR = "/smart-city-traffic/data/features"
+HDFS_MODELS_DIR = "/smart-city-traffic/data/models"
+
+# Local Configuration
+LOCAL_FEATURES_DIR = PROJECT_ROOT / "data" / "processed"
+LOCAL_MODELS_DIR = PROJECT_ROOT / "models"
 
 # Model parameters
 RANDOM_SEED = 42
 
 
-def create_spark_session():
-    """Create and configure Spark session for ML training."""
+# Spark cluster configuration
+SPARK_MASTER_LOCAL = "local[*]"
+SPARK_MASTER_CLUSTER = "spark://localhost:7077"
+
+
+def create_spark_session(use_hdfs=False, use_cluster=False):
+    """
+    Create and configure Spark session for ML training.
+    
+    Args:
+        use_hdfs: If True, configure HDFS as default filesystem
+        use_cluster: If True, connect to Spark cluster; else local mode
+    """
     import os
     
     # Windows workaround: Set Hadoop home for winutils.exe
@@ -65,13 +86,36 @@ def create_spark_session():
         if hadoop_home not in os.environ.get('PATH', ''):
             os.environ['PATH'] = os.environ.get('PATH', '') + f";{hadoop_home}\\bin"
     
-    spark = SparkSession.builder \
+    # Determine master URL
+    if use_cluster:
+        master = SPARK_MASTER_CLUSTER
+        shuffle_partitions = 200
+        mode_str = f"Cluster ({master})"
+    else:
+        master = SPARK_MASTER_LOCAL
+        shuffle_partitions = 50
+        mode_str = "Local"
+    
+    builder = SparkSession.builder \
         .appName("SmartCityTraffic-MLlibTraining") \
+        .master(master) \
         .config("spark.driver.memory", "4g") \
-        .config("spark.sql.shuffle.partitions", "50") \
-        .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
-        .master("local[*]") \
-        .getOrCreate()
+        .config("spark.sql.shuffle.partitions", str(shuffle_partitions)) \
+        .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+    
+    # Add HDFS configuration if using HDFS
+    if use_hdfs:
+        builder = builder \
+            .config("spark.hadoop.fs.defaultFS", HDFS_NAMENODE) \
+            .config("spark.hadoop.dfs.client.use.datanode.hostname", "true")
+    
+    # Add cluster-specific configs
+    if use_cluster:
+        builder = builder \
+            .config("spark.submit.deployMode", "client") \
+            .config("spark.dynamicAllocation.enabled", "false")
+    
+    spark = builder.getOrCreate()
     
     spark.sparkContext.setLogLevel("WARN")
     
@@ -79,27 +123,40 @@ def create_spark_session():
     print("Spark Session Created for MLlib Training")
     print(f"  App Name: {spark.sparkContext.appName}")
     print(f"  Spark Version: {spark.version}")
+    print(f"  Mode: {mode_str}")
+    print(f"  HDFS Mode: {use_hdfs}")
+    if use_hdfs:
+        print(f"  HDFS Namenode: {HDFS_NAMENODE}")
     print("=" * 60)
     
     return spark
 
 
-def load_training_data(spark):
-    """Load the prepared training dataset."""
-    features_path = DATA_DIR / "training_features_spark.parquet"
-    
-    if not features_path.exists():
-        print(f"ERROR: Training data not found at {features_path}")
-        print("Run feature_engineering_spark.py first!")
-        return None, None
+def load_training_data(spark, use_hdfs=False):
+    """Load the prepared training dataset from HDFS or local."""
+    if use_hdfs:
+        features_path = f"{HDFS_NAMENODE}{HDFS_FEATURES_DIR}/training_features_spark.parquet"
+    else:
+        features_path = str(LOCAL_FEATURES_DIR / "training_features_spark.parquet")
+        if not (LOCAL_FEATURES_DIR / "training_features_spark.parquet").exists():
+            print(f"ERROR: Training data not found at {features_path}")
+            print("Run feature_engineering_spark.py first!")
+            return None, None
     
     print(f"\nLoading training data from: {features_path}")
-    df = spark.read.parquet(str(features_path))
     
-    print(f"  Loaded {df.count():,} samples")
+    try:
+        df = spark.read.parquet(features_path)
+        print(f"  ✓ Loaded {df.count():,} samples")
+    except Exception as e:
+        print(f"ERROR loading data: {e}")
+        if use_hdfs:
+            print("  Make sure feature data is in HDFS!")
+            print("  Run: python src/batch/feature_engineering_spark.py --hdfs")
+        return None, None
     
-    # Load feature columns
-    features_json_path = DATA_DIR / "feature_columns_spark.json"
+    # Load feature columns (always from local - saved by feature engineering)
+    features_json_path = LOCAL_FEATURES_DIR / "feature_columns_spark.json"
     with open(features_json_path, 'r') as f:
         feature_columns = json.load(f)
     
@@ -337,26 +394,30 @@ def get_feature_importance(model, feature_columns):
     return dict(feature_importance)
 
 
-def save_model(model, feature_columns, metrics, feature_importance):
+def save_model(model, feature_columns, metrics, feature_importance, use_hdfs=False):
     """Save the trained model and metadata."""
     print("\n" + "=" * 60)
     print("SAVING MODEL")
     print("=" * 60)
     
-    # Ensure models directory exists
-    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    # Ensure local models directory exists (always save metadata locally)
+    LOCAL_MODELS_DIR.mkdir(parents=True, exist_ok=True)
     
     # Save Spark MLlib model
-    model_path = MODELS_DIR / "spark_congestion_model"
-    print(f"\n  Saving Spark MLlib model to: {model_path}")
-    model.write().overwrite().save(str(model_path))
-    print("  Model saved successfully!")
+    if use_hdfs:
+        model_path = f"{HDFS_NAMENODE}{HDFS_MODELS_DIR}/spark_congestion_model"
+    else:
+        model_path = str(LOCAL_MODELS_DIR / "spark_congestion_model")
     
-    # Save model metadata
+    print(f"\n  Saving Spark MLlib model to: {model_path}")
+    model.write().overwrite().save(model_path)
+    print("  ✓ Model saved successfully!")
+    
+    # Save model metadata (always locally for API use)
     model_info = {
         "model_type": "Spark MLlib RandomForestClassifier",
         "trained_at": datetime.now().isoformat(),
-        "spark_model_path": str(model_path),
+        "spark_model_path": model_path,
         "features": feature_columns,
         "metrics": {
             "train_accuracy": round(metrics["train_accuracy"], 4),
@@ -372,6 +433,7 @@ def save_model(model, feature_columns, metrics, feature_importance):
             "high": "< 10 mph"
         },
         "feature_importance": {k: round(v, 4) for k, v in feature_importance.items()},
+        "hdfs_mode": use_hdfs,
         "notes": [
             "Model uses Spark MLlib RandomForestClassifier",
             "avg_speed NOT included in features (prevents data leakage)",
@@ -380,25 +442,37 @@ def save_model(model, feature_columns, metrics, feature_importance):
         ]
     }
     
-    info_path = MODELS_DIR / "model_info_spark.json"
+    info_path = LOCAL_MODELS_DIR / "model_info_spark.json"
     with open(info_path, 'w') as f:
         json.dump(model_info, f, indent=2)
-    print(f"  Saved model info to: {info_path}")
+    print(f"  ✓ Saved model info to: {info_path}")
     
     # Save feature columns for API
-    features_path = MODELS_DIR / "feature_columns_spark.json"
+    features_path = LOCAL_MODELS_DIR / "feature_columns_spark.json"
     with open(features_path, 'w') as f:
         json.dump(feature_columns, f, indent=2)
-    print(f"  Saved feature columns to: {features_path}")
+    print(f"  ✓ Saved feature columns to: {features_path}")
     
     return model_path
 
 
 def main():
     """Main execution function."""
+    # Parse arguments
+    parser = argparse.ArgumentParser(description="Spark MLlib Model Training for Smart City Traffic")
+    parser.add_argument("--hdfs", action="store_true", help="Use HDFS for input/output")
+    parser.add_argument("--cluster", action="store_true",
+                        help="Submit to Spark cluster (spark://localhost:7077) instead of local mode")
+    args = parser.parse_args()
+    
+    use_hdfs = args.hdfs
+    use_cluster = args.cluster
+    
     print("\n" + "=" * 60)
     print("SMART CITY TRAFFIC - SPARK MLlib MODEL TRAINING")
     print("=" * 60)
+    print(f"Storage Mode: {'HDFS' if use_hdfs else 'Local'}")
+    print(f"Spark Mode: {'Cluster' if use_cluster else 'Local'}")
     print("\n  NOTE: This model uses Spark MLlib and proper ML practices:")
     print("    - avg_speed is NOT in features (no data leakage)")
     print("    - Temporal train/test split (Jan-Feb train, March test)")
@@ -407,10 +481,10 @@ def main():
     start_time = datetime.now()
     
     # Create Spark session
-    spark = create_spark_session()
+    spark = create_spark_session(use_hdfs=use_hdfs, use_cluster=use_cluster)
     
     # Load data
-    df, feature_columns = load_training_data(spark)
+    df, feature_columns = load_training_data(spark, use_hdfs=use_hdfs)
     if df is None:
         spark.stop()
         return
@@ -445,7 +519,7 @@ def main():
     feature_importance = get_feature_importance(model, feature_columns)
     
     # Save model
-    model_path = save_model(model, feature_columns, metrics, feature_importance)
+    model_path = save_model(model, feature_columns, metrics, feature_importance, use_hdfs=use_hdfs)
     
     # Summary
     end_time = datetime.now()
@@ -454,7 +528,8 @@ def main():
     print("\n" + "=" * 60)
     print("TRAINING COMPLETE")
     print("=" * 60)
-    print(f"\n  Duration: {duration:.1f} seconds")
+    print(f"\n  Mode: {'HDFS' if use_hdfs else 'Local'}")
+    print(f"  Duration: {duration:.1f} seconds")
     print(f"  Model saved to: {model_path}")
     print(f"\n  TEST ACCURACY: {metrics['test_accuracy']:.4f}")
     print(f"\n  This accuracy is REALISTIC because:")

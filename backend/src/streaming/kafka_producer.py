@@ -9,6 +9,11 @@ This script simulates real-time vehicle GPS events by:
 
 Usage:
     python src/streaming/kafka_producer.py
+    python src/streaming/kafka_producer.py --duration 60
+    python src/streaming/kafka_producer.py --demo  # Without Kafka
+
+Topics:
+    - traffic-events: GPS position events (this producer)
 """
 
 import os
@@ -19,6 +24,7 @@ import time
 import random
 import uuid
 from datetime import datetime, timedelta
+import argparse
 import pandas as pd
 from kafka import KafkaProducer
 from kafka.errors import NoBrokersAvailable
@@ -27,17 +33,31 @@ from kafka.errors import NoBrokersAvailable
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# Configuration
-KAFKA_BOOTSTRAP_SERVERS = ['localhost:9092']
-KAFKA_TOPIC = 'vehicle_positions'
+# Import centralized configuration
+try:
+    from src.config.spark_config import KAFKA_CONFIG, NYC_BOUNDS, MANHATTAN_BOUNDS, DATA_DIR
+except ImportError:
+    # Fallback if config not available
+    KAFKA_CONFIG = {
+        "bootstrap_servers": "localhost:9092",
+        "topic_events": "traffic-events",
+        "events_per_second": 500,
+        "batch_size": 100,
+    }
+    NYC_BOUNDS = {"lat_min": 40.4774, "lat_max": 40.9176, "lon_min": -74.2591, "lon_max": -73.7004, "cell_size": 0.01}
+    MANHATTAN_BOUNDS = {"lat_min": 40.70, "lat_max": 40.88, "lon_min": -74.02, "lon_max": -73.93}
+    DATA_DIR = PROJECT_ROOT / "data"
+
+# Configuration from centralized config
+KAFKA_BOOTSTRAP_SERVERS = [KAFKA_CONFIG["bootstrap_servers"]]
+KAFKA_TOPIC = KAFKA_CONFIG["topic_events"]  # Unified topic: 'traffic-events'
 
 # Simulation settings
-EVENTS_PER_SECOND = 500          # Target events per second
-SPEED_MULTIPLIER = 100           # 100x faster than real-time
-BATCH_SIZE = 100                 # Events per batch
+EVENTS_PER_SECOND = KAFKA_CONFIG.get("events_per_second", 500)
+BATCH_SIZE = KAFKA_CONFIG.get("batch_size", 100)
 
 # Data paths
-DATA_DIR = PROJECT_ROOT / "data" / "processed"
+PROCESSED_DATA_DIR = PROJECT_ROOT / "data" / "processed"
 
 
 class TaxiSimulator:
@@ -72,7 +92,7 @@ class TaxiSimulator:
     def load_data(self):
         """Load processed trip data."""
         # Try to load cleaned parquet files (correct naming convention)
-        parquet_files = list(DATA_DIR.glob('*_clean.parquet'))
+        parquet_files = list(PROCESSED_DATA_DIR.glob('*_clean.parquet'))
         
         if parquet_files:
             print(f"Loading from {len(parquet_files)} parquet files...")
@@ -112,7 +132,11 @@ class TaxiSimulator:
         return df
     
     def generate_event(self, row):
-        """Generate a GPS event from a trip row."""
+        """Generate a GPS event from a trip row.
+        
+        This event schema matches the consumer's expected format,
+        including temporal features for ML predictions.
+        """
         # Generate unique vehicle ID
         vehicle_id = f"taxi_{random.randint(10000, 99999)}"
         
@@ -124,16 +148,52 @@ class TaxiSimulator:
         base_speed = row.get('speed_mph', random.uniform(10, 30))
         speed = max(0, base_speed + random.uniform(-5, 5))
         
-        # Create event
+        # Get cell info (compute if not available)
+        cell_size = NYC_BOUNDS.get("cell_size", 0.01)
+        cell_lat = int((lat - NYC_BOUNDS["lat_min"]) / cell_size)
+        cell_lon = int((lon - NYC_BOUNDS["lon_min"]) / cell_size)
+        cell_id = row.get('cell_id', f"cell_{cell_lat}_{cell_lon}")
+        
+        # Temporal features (use current time for simulation)
+        now = datetime.utcnow()
+        current_hour = row.get('hour', now.hour)
+        current_dow = row.get('day_of_week', now.weekday() + 1)  # 1-7 for Sun-Sat
+        
+        # Derive boolean features
+        is_weekend = 1 if current_dow in [1, 7] else 0  # 1=Sunday, 7=Saturday
+        is_rush_hour = 1 if current_hour in [7, 8, 9, 17, 18, 19] else 0
+        is_night = 1 if current_hour in [22, 23, 0, 1, 2, 3, 4, 5] else 0
+        is_manhattan = 1 if (
+            MANHATTAN_BOUNDS["lat_min"] <= lat <= MANHATTAN_BOUNDS["lat_max"] and
+            MANHATTAN_BOUNDS["lon_min"] <= lon <= MANHATTAN_BOUNDS["lon_max"]
+        ) else 0
+        
+        # Create event with unified schema
         event = {
+            # Event metadata
+            'event_id': f"evt_{uuid.uuid4().hex[:12]}",
+            'timestamp': now.isoformat() + 'Z',
             'vehicle_id': vehicle_id,
-            'timestamp': datetime.utcnow().isoformat() + 'Z',
+            
+            # Location
             'latitude': float(lat),
             'longitude': float(lon),
+            'cell_id': cell_id,
+            'cell_lat': cell_lat,
+            'cell_lon': cell_lon,
+            
+            # Trip info
             'speed': round(float(speed), 2),
             'heading': random.randint(0, 359),
             'trip_id': f"trip_{uuid.uuid4().hex[:8]}",
-            'cell_id': row.get('cell_id', f"cell_{int(lat/0.005)}_{int(lon/0.005)}")
+            
+            # Temporal features (for ML predictions)
+            'hour': current_hour,
+            'day_of_week': current_dow,
+            'is_weekend': is_weekend,
+            'is_rush_hour': is_rush_hour,
+            'is_night': is_night,
+            'is_manhattan': is_manhattan,
         }
         
         return event

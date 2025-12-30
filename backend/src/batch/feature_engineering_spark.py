@@ -3,27 +3,29 @@ Smart City Traffic - Spark Feature Engineering Module
 ======================================================
 
 This script creates features for ML model training using Apache Spark:
+- Reads cleaned data from HDFS or local filesystem
 - Aggregates trip data by cell and time window
 - Creates lagged features for true prediction (no data leakage)
 - Calculates congestion labels from speed
-- Prepares feature vectors for Spark MLlib training
+- Saves features to HDFS or local filesystem
 
 Key Changes from Original:
 - Uses PySpark DataFrame API instead of Pandas
+- Supports HDFS for distributed storage
 - Creates lagged features (prev_hour data) for true prediction
 - Removes avg_speed from features to prevent data leakage
-- Uses temporal aggregation with Window functions
 
 Usage:
-    spark-submit src/batch/feature_engineering_spark.py
-    OR
-    python src/batch/feature_engineering_spark.py
+    python src/batch/feature_engineering_spark.py             # Local mode
+    python src/batch/feature_engineering_spark.py --hdfs      # HDFS mode
 """
 
 import os
 import sys
 from pathlib import Path
 from datetime import datetime
+import argparse
+import json
 
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
@@ -39,9 +41,18 @@ from pyspark.sql.types import IntegerType, DoubleType, BooleanType
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# Configuration
-PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
-OUTPUT_DIR = PROJECT_ROOT / "data" / "processed"
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
+
+# HDFS Configuration
+HDFS_NAMENODE = "hdfs://localhost:9000"
+HDFS_PROCESSED_DIR = "/smart-city-traffic/data/processed"
+HDFS_FEATURES_DIR = "/smart-city-traffic/data/features"
+
+# Local Configuration
+LOCAL_PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
+LOCAL_FEATURES_DIR = PROJECT_ROOT / "data" / "processed"
 
 # Congestion thresholds (based on speed in mph)
 CONGESTION_THRESHOLDS = {
@@ -51,8 +62,19 @@ CONGESTION_THRESHOLDS = {
 }
 
 
-def create_spark_session():
-    """Create and configure Spark session."""
+# Spark cluster configuration
+SPARK_MASTER_LOCAL = "local[*]"
+SPARK_MASTER_CLUSTER = "spark://localhost:7077"
+
+
+def create_spark_session(use_hdfs=False, use_cluster=False):
+    """
+    Create and configure Spark session.
+    
+    Args:
+        use_hdfs: If True, configure HDFS as default filesystem
+        use_cluster: If True, connect to Spark cluster; else local mode
+    """
     import os
     
     # Windows workaround: Set Hadoop home for winutils.exe
@@ -63,13 +85,36 @@ def create_spark_session():
         if hadoop_home not in os.environ.get('PATH', ''):
             os.environ['PATH'] = os.environ.get('PATH', '') + f";{hadoop_home}\\bin"
     
-    spark = SparkSession.builder \
+    # Determine master URL
+    if use_cluster:
+        master = SPARK_MASTER_CLUSTER
+        shuffle_partitions = 200
+        mode_str = f"Cluster ({master})"
+    else:
+        master = SPARK_MASTER_LOCAL
+        shuffle_partitions = 50
+        mode_str = "Local"
+    
+    builder = SparkSession.builder \
         .appName("SmartCityTraffic-FeatureEngineering") \
+        .master(master) \
         .config("spark.driver.memory", "4g") \
         .config("spark.sql.parquet.compression.codec", "snappy") \
-        .config("spark.sql.shuffle.partitions", "50") \
-        .master("local[*]") \
-        .getOrCreate()
+        .config("spark.sql.shuffle.partitions", str(shuffle_partitions))
+    
+    # Add HDFS configuration if using HDFS
+    if use_hdfs:
+        builder = builder \
+            .config("spark.hadoop.fs.defaultFS", HDFS_NAMENODE) \
+            .config("spark.hadoop.dfs.client.use.datanode.hostname", "true")
+    
+    # Add cluster-specific configs
+    if use_cluster:
+        builder = builder \
+            .config("spark.submit.deployMode", "client") \
+            .config("spark.dynamicAllocation.enabled", "false")
+    
+    spark = builder.getOrCreate()
     
     spark.sparkContext.setLogLevel("WARN")
     
@@ -77,21 +122,28 @@ def create_spark_session():
     print("Spark Session Created for Feature Engineering")
     print(f"  App Name: {spark.sparkContext.appName}")
     print(f"  Spark Version: {spark.version}")
+    print(f"  Mode: {mode_str}")
+    print(f"  HDFS Mode: {use_hdfs}")
+    if use_hdfs:
+        print(f"  HDFS Namenode: {HDFS_NAMENODE}")
     print("=" * 60)
     
     return spark
 
 
-def load_cleaned_data(spark):
+def load_cleaned_data(spark, use_hdfs=False):
     """Load all cleaned Parquet files using Spark."""
-    parquet_path = str(PROCESSED_DIR / "*_clean.parquet")
+    if use_hdfs:
+        parquet_path = f"{HDFS_NAMENODE}{HDFS_PROCESSED_DIR}/*_clean.parquet"
+    else:
+        parquet_path = str(LOCAL_PROCESSED_DIR / "*_clean.parquet")
     
     print(f"\nLoading cleaned data from: {parquet_path}")
     
     try:
         df = spark.read.parquet(parquet_path)
         record_count = df.count()
-        print(f"  Loaded {record_count:,} records")
+        print(f"  ✓ Loaded {record_count:,} records")
         
         # Show schema
         print("\nSchema:")
@@ -100,6 +152,9 @@ def load_cleaned_data(spark):
         return df
     except Exception as e:
         print(f"ERROR loading data: {e}")
+        if use_hdfs:
+            print("  Make sure cleaned data is in HDFS!")
+            print("  Run: python src/batch/data_cleaning_spark.py --hdfs")
         return None
 
 
@@ -371,28 +426,33 @@ def add_train_test_split_column(df):
     return df
 
 
-def save_features(df, feature_columns):
-    """Save processed features to Parquet."""
+def save_features(df, feature_columns, use_hdfs=False):
+    """Save processed features to Parquet (HDFS or local)."""
     print("\n" + "=" * 60)
     print("STEP 8: Saving Features")
     print("=" * 60)
     
-    output_path = OUTPUT_DIR / "training_features_spark.parquet"
+    if use_hdfs:
+        output_path = f"{HDFS_NAMENODE}{HDFS_FEATURES_DIR}/training_features_spark.parquet"
+        features_json_path = None  # Will save locally
+    else:
+        output_path = str(LOCAL_FEATURES_DIR / "training_features_spark.parquet")
+        features_json_path = LOCAL_FEATURES_DIR / "feature_columns_spark.json"
     
     # Repartition for optimal file size
     num_partitions = max(1, df.count() // 500000)
     df = df.repartition(num_partitions)
     
     # Save to Parquet
-    df.write.mode("overwrite").parquet(str(output_path))
-    print(f"  Saved features to: {output_path}")
+    df.write.mode("overwrite").parquet(output_path)
+    print(f"  ✓ Saved features to: {output_path}")
     
-    # Save feature column names
-    features_path = OUTPUT_DIR / "feature_columns_spark.json"
-    import json
-    with open(features_path, 'w') as f:
+    # Save feature column names (always save locally for model training reference)
+    local_features_path = LOCAL_FEATURES_DIR / "feature_columns_spark.json"
+    LOCAL_FEATURES_DIR.mkdir(parents=True, exist_ok=True)
+    with open(local_features_path, 'w') as f:
         json.dump(feature_columns, f, indent=2)
-    print(f"  Saved feature columns to: {features_path}")
+    print(f"  ✓ Saved feature columns to: {local_features_path}")
     
     return output_path
 
@@ -413,19 +473,34 @@ def print_data_summary(df):
 
 def main():
     """Main execution function."""
+    # Parse arguments
+    parser = argparse.ArgumentParser(description="Spark Feature Engineering for Smart City Traffic")
+    parser.add_argument("--hdfs", action="store_true", help="Use HDFS for input/output")
+    parser.add_argument("--cluster", action="store_true",
+                        help="Submit to Spark cluster (spark://localhost:7077) instead of local mode")
+    args = parser.parse_args()
+    
+    use_hdfs = args.hdfs
+    use_cluster = args.cluster
+    
     print("\n" + "=" * 60)
     print("SMART CITY TRAFFIC - SPARK FEATURE ENGINEERING")
     print("=" * 60)
+    print(f"Storage Mode: {'HDFS' if use_hdfs else 'Local'}")
+    print(f"Spark Mode: {'Cluster' if use_cluster else 'Local'}")
     
     start_time = datetime.now()
     
     # Create Spark session
-    spark = create_spark_session()
+    spark = create_spark_session(use_hdfs=use_hdfs, use_cluster=use_cluster)
     
     # Load cleaned data
-    df = load_cleaned_data(spark)
+    df = load_cleaned_data(spark, use_hdfs=use_hdfs)
     if df is None:
         print("ERROR: Could not load data!")
+        if use_hdfs:
+            print("  Run data cleaning with HDFS first:")
+            print("  python src/batch/data_cleaning_spark.py --hdfs")
         spark.stop()
         return
     
@@ -454,7 +529,8 @@ def main():
     print_data_summary(final_df)
     
     # Step 8: Save features
-    save_features(final_df, feature_columns)
+    output_base = f"{HDFS_NAMENODE}{HDFS_FEATURES_DIR}" if use_hdfs else str(LOCAL_FEATURES_DIR)
+    save_features(final_df, feature_columns, use_hdfs=use_hdfs)
     
     # Summary
     end_time = datetime.now()
@@ -463,9 +539,11 @@ def main():
     print("\n" + "=" * 60)
     print("FEATURE ENGINEERING COMPLETE")
     print("=" * 60)
+    print(f"  Mode: {'HDFS' if use_hdfs else 'Local'}")
     print(f"  Total records: {final_df.count():,}")
     print(f"  Features: {len(feature_columns)}")
     print(f"  Duration: {duration:.1f} seconds")
+    print(f"  Output: {output_base}")
     print("\n  KEY POINT: avg_speed is NOT in features!")
     print("  This prevents data leakage and enables true prediction.")
     print("=" * 60)

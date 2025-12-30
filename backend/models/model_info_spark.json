@@ -1,7 +1,7 @@
 {
   "model_type": "Spark MLlib RandomForestClassifier",
-  "trained_at": "2025-12-06T21:41:16.489412",
-  "spark_model_path": "C:\\sem6-real\\vscode2\\smart-city-traffic\\models\\spark_congestion_model",
+  "trained_at": "2025-12-30T10:22:00.027494",
+  "spark_model_path": "hdfs://localhost:9000/smart-city-traffic/data/models/spark_congestion_model",
   "features": [
     "hour",
     "day_of_week",
@@ -55,6 +55,7 @@
     "is_rush_hour": 0.0042,
     "month": 0.0004
   },
+  "hdfs_mode": true,
   "notes": [
     "Model uses Spark MLlib RandomForestClassifier",
     "avg_speed NOT included in features (prevents data leakage)",

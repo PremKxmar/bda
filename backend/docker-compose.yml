@@ -47,11 +47,16 @@ services:
       - namenode
     ports:
       - "9864:9864"   # Web UI
+      - "9866:9866"   # Data transfer port
     volumes:
       - hadoop_datanode:/hadoop/dfs/data
     environment:
       - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
       - HDFS_CONF_dfs_replication=1
+      - HDFS_CONF_dfs_datanode_hostname=localhost
+      - HDFS_CONF_dfs_datanode_address=0.0.0.0:9866
+      - HDFS_CONF_dfs_datanode_http_address=0.0.0.0:9864
+      - HDFS_CONF_dfs_client_use_datanode_hostname=true
     networks:
       - traffic-network
 
@@ -111,49 +116,122 @@ services:
       - traffic-network
 
   # ===========================================
-  # SPARK SERVICES
+  # SPARK SERVICES (Cluster Mode)
   # ===========================================
   
   spark-master:
-    image: apache/spark:3.5.0
+    image: apache/spark-py
     container_name: spark-master
     restart: always
+    user: root
     ports:
       - "8081:8080"   # Spark Master Web UI
       - "7077:7077"   # Spark Master Port
     environment:
       - SPARK_MODE=master
-      - SPARK_RPC_AUTHENTICATION_ENABLED=no
-      - SPARK_RPC_ENCRYPTION_ENABLED=no
-      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
-      - SPARK_SSL_ENABLED=no
-    command: /opt/spark/sbin/start-master.sh
+      - SPARK_MASTER_HOST=spark-master
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
     volumes:
       - ./:/app
       - spark_data:/opt/spark/data
+      - ../data:/data
     networks:
       - traffic-network
 
-  spark-worker:
-    image: apache/spark:3.5.0
-    container_name: spark-worker
+  spark-worker-1:
+    image: apache/spark-py
+    container_name: spark-worker-1
     restart: always
+    user: root
     depends_on:
       - spark-master
     ports:
       - "8082:8081"   # Spark Worker Web UI
     environment:
       - SPARK_MODE=worker
-      - SPARK_MASTER_URL=spark://spark-master:7077
-      - SPARK_WORKER_MEMORY=4G
+      - SPARK_MASTER=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=2G
       - SPARK_WORKER_CORES=2
-      - SPARK_RPC_AUTHENTICATION_ENABLED=no
-      - SPARK_RPC_ENCRYPTION_ENABLED=no
-      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
-      - SPARK_SSL_ENABLED=no
-    command: /opt/spark/sbin/start-worker.sh spark://spark-master:7077
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
     volumes:
       - ./:/app
+      - ../data:/data
+    networks:
+      - traffic-network
+
+  spark-worker-2:
+    image: apache/spark-py
+    container_name: spark-worker-2
+    restart: always
+    user: root
+    depends_on:
+      - spark-master
+    ports:
+      - "8083:8081"   # Spark Worker Web UI
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=2G
+      - SPARK_WORKER_CORES=2
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+    volumes:
+      - ./:/app
+      - ../data:/data
+    networks:
+      - traffic-network
+
+  # ===========================================
+  # MONITORING SERVICES
+  # ===========================================
+  
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: prometheus
+    restart: always
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - traffic-network
+
+  grafana:
+    image: grafana/grafana:10.0.0
+    container_name: grafana
+    restart: always
+    ports:
+      - "3001:3000"   # Using 3001 to avoid conflict with React frontend
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - traffic-network
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: kafka-exporter
+    restart: always
+    ports:
+      - "9308:9308"
+    command:
+      - '--kafka.server=kafka:29092'
+    depends_on:
+      - kafka
     networks:
       - traffic-network
 
@@ -167,6 +245,8 @@ volumes:
   zookeeper_logs:
   kafka_data:
   spark_data:
+  prometheus_data:
+  grafana_data:
 
 # ===========================================
 # NETWORKS

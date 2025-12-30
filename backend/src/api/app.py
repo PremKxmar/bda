@@ -24,6 +24,14 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 
+# Prometheus metrics (optional - install with: pip install prometheus-flask-exporter)
+try:
+    from prometheus_flask_exporter import PrometheusMetrics
+    PROMETHEUS_AVAILABLE = True
+except ImportError:
+    PROMETHEUS_AVAILABLE = False
+    print("⚠ prometheus_flask_exporter not installed. Run: pip install prometheus-flask-exporter")
+
 import pandas as pd
 import numpy as np
 import joblib
@@ -36,6 +44,13 @@ sys.path.insert(0, str(PROJECT_ROOT))
 app = Flask(__name__, static_folder='../../dashboard')
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+
+# Initialize Prometheus metrics if available
+if PROMETHEUS_AVAILABLE:
+    metrics = PrometheusMetrics(app)
+    # Add custom metrics info
+    metrics.info('smart_city_traffic', 'Smart City Traffic API', version='1.0.0')
+    print("✓ Prometheus metrics enabled at /metrics")
 
 # Configuration
 DATA_DIR = PROJECT_ROOT / "data" / "processed"

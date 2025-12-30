@@ -1,0 +1,23 @@
+# Prometheus Configuration for Smart City Traffic System
+# Scrapes metrics from Flask API, Kafka, and other services
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Flask API metrics
+  - job_name: 'flask-api'
+    static_configs:
+      - targets: ['host.docker.internal:5000']
+    metrics_path: /metrics
+
+  # Kafka exporter metrics
+  - job_name: 'kafka'
+    static_configs:
+      - targets: ['kafka-exporter:9308']
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

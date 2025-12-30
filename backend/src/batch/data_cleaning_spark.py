@@ -3,21 +3,22 @@ Smart City Traffic - Spark Data Cleaning Module
 ================================================
 
 This script cleans the raw NYC Taxi data using Apache Spark:
+- Reads data from HDFS or local filesystem
 - Removes invalid coordinates
 - Filters outliers in speed/distance
 - Handles missing values
-- Saves cleaned data as Parquet
+- Saves cleaned data as Parquet to HDFS or local
 
 Usage:
-    spark-submit src/batch/data_cleaning_spark.py
-    OR
-    python src/batch/data_cleaning_spark.py
+    python src/batch/data_cleaning_spark.py             # Local mode
+    python src/batch/data_cleaning_spark.py --hdfs      # HDFS mode
 """
 
 import os
 import sys
 from pathlib import Path
 from datetime import datetime
+import argparse
 
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
@@ -34,9 +35,18 @@ from pyspark.sql.types import (
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# Configuration
-RAW_DATA_DIR = Path(r"c:\sem6-real\vscode2")
-PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
+
+# HDFS Configuration
+HDFS_NAMENODE = "hdfs://localhost:9000"
+HDFS_RAW_DIR = "/smart-city-traffic/data/raw"
+HDFS_PROCESSED_DIR = "/smart-city-traffic/data/processed"
+
+# Local Configuration
+LOCAL_RAW_DIR = Path(r"c:\sem6-real\bigdata\vscode")
+LOCAL_PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 
 # NYC Geographic bounds
 NYC_LAT_MIN = 40.4774
@@ -47,9 +57,22 @@ NYC_LON_MAX = -73.7004
 # Grid cell size (approximately 1km x 1km)
 CELL_SIZE = 0.01
 
+# Global flag for HDFS mode
+USE_HDFS = False
 
-def create_spark_session():
-    """Create and configure Spark session."""
+# Spark cluster configuration
+SPARK_MASTER_LOCAL = "local[*]"
+SPARK_MASTER_CLUSTER = "spark://localhost:7077"
+
+
+def create_spark_session(use_hdfs=False, use_cluster=False):
+    """
+    Create and configure Spark session.
+    
+    Args:
+        use_hdfs: If True, configure HDFS as default filesystem
+        use_cluster: If True, connect to Spark cluster; else local mode
+    """
     import os
     
     # Windows workaround: Set Hadoop home for winutils.exe
@@ -61,13 +84,38 @@ def create_spark_session():
         if hadoop_home not in os.environ.get('PATH', ''):
             os.environ['PATH'] = os.environ.get('PATH', '') + f";{hadoop_home}\\bin"
     
-    spark = SparkSession.builder \
+    # Determine master URL
+    if use_cluster:
+        master = SPARK_MASTER_CLUSTER
+        shuffle_partitions = 200  # More partitions for cluster
+        mode_str = f"Cluster ({master})"
+    else:
+        master = SPARK_MASTER_LOCAL
+        shuffle_partitions = 20  # Fewer partitions for local
+        mode_str = "Local"
+    
+    builder = SparkSession.builder \
         .appName("SmartCityTraffic-DataCleaning") \
-        .config("spark.driver.memory", "4g") \
+        .master(master) \
+        .config("spark.driver.memory", "2g") \
+        .config("spark.executor.memory", "2g") \
         .config("spark.sql.parquet.compression.codec", "snappy") \
-        .config("spark.sql.shuffle.partitions", "50") \
-        .master("local[*]") \
-        .getOrCreate()
+        .config("spark.sql.shuffle.partitions", str(shuffle_partitions)) \
+        .config("spark.driver.maxResultSize", "1g")
+    
+    # Add HDFS configuration if using HDFS
+    if use_hdfs:
+        builder = builder \
+            .config("spark.hadoop.fs.defaultFS", HDFS_NAMENODE) \
+            .config("spark.hadoop.dfs.client.use.datanode.hostname", "true")
+    
+    # Add cluster-specific configs
+    if use_cluster:
+        builder = builder \
+            .config("spark.submit.deployMode", "client") \
+            .config("spark.dynamicAllocation.enabled", "false")
+    
+    spark = builder.getOrCreate()
     
     # Set log level
     spark.sparkContext.setLogLevel("WARN")
@@ -76,25 +124,57 @@ def create_spark_session():
     print("Spark Session Created")
     print(f"  App Name: {spark.sparkContext.appName}")
     print(f"  Spark Version: {spark.version}")
-    print(f"  Master: {spark.sparkContext.master}")
+    print(f"  Mode: {mode_str}")
+    print(f"  HDFS Mode: {use_hdfs}")
+    if use_hdfs:
+        print(f"  HDFS Namenode: {HDFS_NAMENODE}")
     print("=" * 60)
     
     return spark
 
 
-def get_taxi_files():
-    """Find all taxi CSV files in the raw data directory."""
-    files = list(RAW_DATA_DIR.glob('yellow_tripdata_*.csv'))
-    print(f"\nFound {len(files)} taxi data files:")
+def get_taxi_files_local():
+    """Find all taxi CSV files in the local raw data directory."""
+    files = list(LOCAL_RAW_DIR.glob('yellow_tripdata_*.csv'))
+    print(f"\nFound {len(files)} taxi data files (local):")
     for f in files:
         size_mb = f.stat().st_size / (1024 * 1024)
         print(f"  - {f.name}: {size_mb:.2f} MB")
+    return [str(f) for f in files]
+
+
+def get_taxi_files_hdfs(spark):
+    """Find all taxi CSV files in HDFS."""
+    print(f"\nLooking for taxi data files in HDFS: {HDFS_RAW_DIR}")
+    
+    # Use Spark to list HDFS directory
+    hadoop_conf = spark.sparkContext._jsc.hadoopConfiguration()
+    fs = spark.sparkContext._jvm.org.apache.hadoop.fs.FileSystem.get(
+        spark.sparkContext._jvm.java.net.URI(HDFS_NAMENODE),
+        hadoop_conf
+    )
+    
+    path = spark.sparkContext._jvm.org.apache.hadoop.fs.Path(HDFS_RAW_DIR)
+    
+    files = []
+    try:
+        file_statuses = fs.listStatus(path)
+        for status in file_statuses:
+            file_path = str(status.getPath())
+            if "yellow_tripdata" in file_path:
+                files.append(file_path)
+                print(f"  - {file_path}")
+    except Exception as e:
+        print(f"  Error listing HDFS: {e}")
+        print(f"  Make sure data is uploaded to HDFS first!")
+    
+    print(f"\nFound {len(files)} taxi data files in HDFS")
     return files
 
 
-def load_raw_data(spark, file_path):
+def load_raw_data(spark, file_path, use_hdfs=False):
     """Load raw CSV data into Spark DataFrame."""
-    print(f"\nLoading: {file_path.name}")
+    print(f"\nLoading: {file_path}")
     
     # Define schema for NYC Taxi data (2015-2016 format)
     schema = StructType([
@@ -124,7 +204,7 @@ def load_raw_data(spark, file_path):
         .option("header", "true") \
         .option("mode", "DROPMALFORMED") \
         .schema(schema) \
-        .csv(str(file_path))
+        .csv(file_path)
     
     initial_count = df.count()
     print(f"  Loaded {initial_count:,} rows")
@@ -265,8 +345,8 @@ def print_statistics(df, label):
         print(f"    Hour {row['hour']:02d}: {row['count']:,}")
 
 
-def save_to_parquet(df, output_path):
-    """Save DataFrame to Parquet format."""
+def save_to_parquet(df, output_path, use_hdfs=False):
+    """Save DataFrame to Parquet format (HDFS or local)."""
     print(f"\nSaving to: {output_path}")
     
     # Repartition for optimal file sizes (aim for ~128MB per partition)
@@ -276,42 +356,62 @@ def save_to_parquet(df, output_path):
     # Save as Parquet with snappy compression
     df.write \
         .mode("overwrite") \
-        .parquet(str(output_path))
+        .parquet(output_path)
     
-    print(f"  Saved successfully!")
+    print(f"  ✓ Saved successfully!")
 
 
 def main():
     """Main execution function."""
+    # Parse arguments
+    parser = argparse.ArgumentParser(description="Spark Data Cleaning for Smart City Traffic")
+    parser.add_argument("--hdfs", action="store_true", help="Use HDFS for input/output")
+    parser.add_argument("--cluster", action="store_true", 
+                        help="Submit to Spark cluster (spark://localhost:7077) instead of local mode")
+    args = parser.parse_args()
+    
+    use_hdfs = args.hdfs
+    use_cluster = args.cluster
+    
     print("\n" + "=" * 60)
     print("SMART CITY TRAFFIC - SPARK DATA CLEANING")
     print("=" * 60)
+    print(f"Storage Mode: {'HDFS' if use_hdfs else 'Local'}")
+    print(f"Spark Mode: {'Cluster' if use_cluster else 'Local'}")
     
     start_time = datetime.now()
     
     # Create Spark session
-    spark = create_spark_session()
+    spark = create_spark_session(use_hdfs=use_hdfs, use_cluster=use_cluster)
     
-    # Get taxi files
-    taxi_files = get_taxi_files()
+    # Get taxi files based on mode
+    if use_hdfs:
+        taxi_files = get_taxi_files_hdfs(spark)
+        output_base = f"{HDFS_NAMENODE}{HDFS_PROCESSED_DIR}"
+    else:
+        taxi_files = get_taxi_files_local()
+        output_base = str(LOCAL_PROCESSED_DIR)
+        # Ensure local output directory exists
+        LOCAL_PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     
     if not taxi_files:
         print("ERROR: No taxi data files found!")
+        if use_hdfs:
+            print("  Make sure to upload data to HDFS first:")
+            print("  python src/batch/hdfs_utils.py upload")
         spark.stop()
         return
-    
-    # Ensure output directory exists
-    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     
     # Process each file
     total_records = 0
     for file_path in taxi_files:
         print(f"\n{'=' * 60}")
-        print(f"Processing: {file_path.name}")
+        file_name = file_path.split("/")[-1] if "/" in file_path else file_path.split("\\")[-1]
+        print(f"Processing: {file_name}")
         print("=" * 60)
         
         # Load raw data
-        df = load_raw_data(spark, file_path)
+        df = load_raw_data(spark, file_path, use_hdfs)
         
         # Clean and transform
         df_clean = clean_and_transform(df)
@@ -319,12 +419,18 @@ def main():
         # Print statistics
         print_statistics(df_clean, "Cleaned Data")
         
-        # Generate output filename
-        output_name = file_path.stem + "_clean.parquet"
-        output_path = PROCESSED_DIR / output_name
+        # Generate output path
+        # Extract base name without extension
+        base_name = file_name.replace(".csv", "").replace(".parquet", "")
+        output_name = f"{base_name}_clean.parquet"
+        
+        if use_hdfs:
+            output_path = f"{output_base}/{output_name}"
+        else:
+            output_path = str(LOCAL_PROCESSED_DIR / output_name)
         
         # Save to Parquet
-        save_to_parquet(df_clean, output_path)
+        save_to_parquet(df_clean, output_path, use_hdfs)
         
         total_records += df_clean.count()
     
@@ -335,10 +441,11 @@ def main():
     print("\n" + "=" * 60)
     print("CLEANING COMPLETE")
     print("=" * 60)
+    print(f"  Mode: {'HDFS' if use_hdfs else 'Local'}")
     print(f"  Files processed: {len(taxi_files)}")
     print(f"  Total records: {total_records:,}")
     print(f"  Duration: {duration:.1f} seconds")
-    print(f"  Output directory: {PROCESSED_DIR}")
+    print(f"  Output directory: {output_base}")
     print("=" * 60)
     
     # Stop Spark session
