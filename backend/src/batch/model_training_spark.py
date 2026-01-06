@@ -63,19 +63,8 @@ LOCAL_MODELS_DIR = PROJECT_ROOT / "models"
 RANDOM_SEED = 42
 
 
-# Spark cluster configuration
-SPARK_MASTER_LOCAL = "local[*]"
-SPARK_MASTER_CLUSTER = "spark://localhost:7077"
-
-
-def create_spark_session(use_hdfs=False, use_cluster=False):
-    """
-    Create and configure Spark session for ML training.
-    
-    Args:
-        use_hdfs: If True, configure HDFS as default filesystem
-        use_cluster: If True, connect to Spark cluster; else local mode
-    """
+def create_spark_session(use_hdfs=False):
+    """Create and configure Spark session for ML training."""
     import os
     
     # Windows workaround: Set Hadoop home for winutils.exe
@@ -86,21 +75,10 @@ def create_spark_session(use_hdfs=False, use_cluster=False):
         if hadoop_home not in os.environ.get('PATH', ''):
             os.environ['PATH'] = os.environ.get('PATH', '') + f";{hadoop_home}\\bin"
     
-    # Determine master URL
-    if use_cluster:
-        master = SPARK_MASTER_CLUSTER
-        shuffle_partitions = 200
-        mode_str = f"Cluster ({master})"
-    else:
-        master = SPARK_MASTER_LOCAL
-        shuffle_partitions = 50
-        mode_str = "Local"
-    
     builder = SparkSession.builder \
         .appName("SmartCityTraffic-MLlibTraining") \
-        .master(master) \
         .config("spark.driver.memory", "4g") \
-        .config("spark.sql.shuffle.partitions", str(shuffle_partitions)) \
+        .config("spark.sql.shuffle.partitions", "50") \
         .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     
     # Add HDFS configuration if using HDFS
@@ -109,13 +87,7 @@ def create_spark_session(use_hdfs=False, use_cluster=False):
             .config("spark.hadoop.fs.defaultFS", HDFS_NAMENODE) \
             .config("spark.hadoop.dfs.client.use.datanode.hostname", "true")
     
-    # Add cluster-specific configs
-    if use_cluster:
-        builder = builder \
-            .config("spark.submit.deployMode", "client") \
-            .config("spark.dynamicAllocation.enabled", "false")
-    
-    spark = builder.getOrCreate()
+    spark = builder.master("local[*]").getOrCreate()
     
     spark.sparkContext.setLogLevel("WARN")
     
@@ -123,7 +95,6 @@ def create_spark_session(use_hdfs=False, use_cluster=False):
     print("Spark Session Created for MLlib Training")
     print(f"  App Name: {spark.sparkContext.appName}")
     print(f"  Spark Version: {spark.version}")
-    print(f"  Mode: {mode_str}")
     print(f"  HDFS Mode: {use_hdfs}")
     if use_hdfs:
         print(f"  HDFS Namenode: {HDFS_NAMENODE}")
@@ -461,18 +432,14 @@ def main():
     # Parse arguments
     parser = argparse.ArgumentParser(description="Spark MLlib Model Training for Smart City Traffic")
     parser.add_argument("--hdfs", action="store_true", help="Use HDFS for input/output")
-    parser.add_argument("--cluster", action="store_true",
-                        help="Submit to Spark cluster (spark://localhost:7077) instead of local mode")
     args = parser.parse_args()
     
     use_hdfs = args.hdfs
-    use_cluster = args.cluster
     
     print("\n" + "=" * 60)
     print("SMART CITY TRAFFIC - SPARK MLlib MODEL TRAINING")
     print("=" * 60)
-    print(f"Storage Mode: {'HDFS' if use_hdfs else 'Local'}")
-    print(f"Spark Mode: {'Cluster' if use_cluster else 'Local'}")
+    print(f"Mode: {'HDFS' if use_hdfs else 'Local'}")
     print("\n  NOTE: This model uses Spark MLlib and proper ML practices:")
     print("    - avg_speed is NOT in features (no data leakage)")
     print("    - Temporal train/test split (Jan-Feb train, March test)")
@@ -481,7 +448,7 @@ def main():
     start_time = datetime.now()
     
     # Create Spark session
-    spark = create_spark_session(use_hdfs=use_hdfs, use_cluster=use_cluster)
+    spark = create_spark_session(use_hdfs=use_hdfs)
     
     # Load data
     df, feature_columns = load_training_data(spark, use_hdfs=use_hdfs)

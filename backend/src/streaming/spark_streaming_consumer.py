@@ -3,7 +3,7 @@
 SMART CITY TRAFFIC - SPARK STRUCTURED STREAMING CONSUMER
 ============================================================
 Consumes taxi trip events from Kafka using Spark Structured Streaming.
-Makes real-time congestion predictions and writes results.
+Makes real-time congestion predictions and writes results to HDFS.
 
 Usage:
     python src/streaming/spark_streaming_consumer.py [--hdfs] [--cluster]
@@ -11,11 +11,6 @@ Usage:
 Options:
     --hdfs      Write output to HDFS instead of local files
     --cluster   Submit to Spark cluster instead of local mode
-    --output    Output type: console, parquet, kafka, all
-
-Topics:
-    Input:  traffic-events      (from kafka_producer.py)
-    Output: traffic-predictions (to API/dashboard)
 ============================================================
 """
 
@@ -27,8 +22,7 @@ from pathlib import Path
 from datetime import datetime
 
 # Add parent directory to path
-PROJECT_ROOT = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
@@ -42,71 +36,48 @@ from pyspark.sql.types import (
 )
 from pyspark.ml import PipelineModel
 
-# Import centralized configuration
-try:
-    from src.config.spark_config import (
-        KAFKA_CONFIG, HDFS_CONFIG, SPARK_CONFIG,
-        create_spark_session as create_session_from_config,
-        get_traffic_event_schema, get_hdfs_path
-    )
-    USE_CENTRALIZED_CONFIG = True
-except ImportError:
-    USE_CENTRALIZED_CONFIG = False
-    print("Warning: Could not import centralized config, using local defaults")
-
-# Configuration (use centralized config if available, else fallback)
-if USE_CENTRALIZED_CONFIG:
-    KAFKA_BOOTSTRAP_SERVERS = KAFKA_CONFIG["bootstrap_servers"]
-    KAFKA_TOPIC_INPUT = KAFKA_CONFIG["topic_events"]        # 'traffic-events'
-    KAFKA_TOPIC_OUTPUT = KAFKA_CONFIG["topic_predictions"]  # 'traffic-predictions'
-    HDFS_NAMENODE = HDFS_CONFIG["namenode"]
-    SPARK_MASTER_CLUSTER = SPARK_CONFIG["master_cluster"]
-else:
-    KAFKA_BOOTSTRAP_SERVERS = 'localhost:9092'
-    KAFKA_TOPIC_INPUT = 'traffic-events'
-    KAFKA_TOPIC_OUTPUT = 'traffic-predictions'
-    HDFS_NAMENODE = 'hdfs://localhost:9000'
-    SPARK_MASTER_CLUSTER = 'spark://localhost:7077'
+# Configuration
+KAFKA_BOOTSTRAP_SERVERS = 'localhost:9092'
+KAFKA_TOPIC = 'taxi-trips'
+HDFS_NAMENODE = 'hdfs://localhost:9000'
+SPARK_MASTER_CLUSTER = 'spark://localhost:7077'
 
 # Output paths
 HDFS_OUTPUT_PATH = '/smart-city-traffic/data/streaming'
-LOCAL_OUTPUT_PATH = str(PROJECT_ROOT / 'data' / 'streaming')
+LOCAL_OUTPUT_PATH = str(Path(__file__).parent.parent.parent / 'data' / 'streaming')
 
 # Checkpoint paths
 HDFS_CHECKPOINT_PATH = '/smart-city-traffic/checkpoints/streaming'
-LOCAL_CHECKPOINT_PATH = str(PROJECT_ROOT / 'data' / 'checkpoints')
+LOCAL_CHECKPOINT_PATH = str(Path(__file__).parent.parent.parent / 'data' / 'checkpoints')
 
 
-def get_traffic_event_schema_local():
-    """
-    Define schema for incoming Kafka traffic events.
-    This matches the unified schema from kafka_producer.py.
-    """
+def get_taxi_event_schema():
+    """Define schema for incoming Kafka taxi events."""
     return StructType([
-        # Event metadata
         StructField("event_id", StringType(), True),
-        StructField("timestamp", StringType(), True),
-        StructField("vehicle_id", StringType(), True),
-        
-        # Location
-        StructField("latitude", DoubleType(), True),
-        StructField("longitude", DoubleType(), True),
+        StructField("event_time", StringType(), True),
+        StructField("pickup_datetime", StringType(), True),
+        StructField("dropoff_datetime", StringType(), True),
+        StructField("pickup_lat", DoubleType(), True),
+        StructField("pickup_lon", DoubleType(), True),
+        StructField("dropoff_lat", DoubleType(), True),
+        StructField("dropoff_lon", DoubleType(), True),
+        StructField("trip_distance", DoubleType(), True),
+        StructField("duration_minutes", DoubleType(), True),
+        StructField("speed_mph", DoubleType(), True),
+        StructField("passenger_count", IntegerType(), True),
+        StructField("fare_amount", DoubleType(), True),
         StructField("cell_id", StringType(), True),
         StructField("cell_lat", IntegerType(), True),
         StructField("cell_lon", IntegerType(), True),
-        
-        # Trip info
-        StructField("speed", DoubleType(), True),
-        StructField("heading", IntegerType(), True),
-        StructField("trip_id", StringType(), True),
-        
-        # Temporal features (for ML predictions)
         StructField("hour", IntegerType(), True),
         StructField("day_of_week", IntegerType(), True),
+        StructField("month", IntegerType(), True),
+        StructField("year", IntegerType(), True),
         StructField("is_weekend", IntegerType(), True),
         StructField("is_rush_hour", IntegerType(), True),
         StructField("is_night", IntegerType(), True),
-        StructField("is_manhattan", IntegerType(), True),
+        StructField("is_manhattan", IntegerType(), True)
     ])
 
 
@@ -173,23 +144,20 @@ def create_kafka_stream(spark):
     """Create a streaming DataFrame from Kafka."""
     
     print(f"\n📡 Connecting to Kafka: {KAFKA_BOOTSTRAP_SERVERS}")
-    print(f"   Input Topic: {KAFKA_TOPIC_INPUT}")
+    print(f"   Topic: {KAFKA_TOPIC}")
     
     # Read from Kafka
     kafka_df = spark \
         .readStream \
         .format("kafka") \
         .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS) \
-        .option("subscribe", KAFKA_TOPIC_INPUT) \
+        .option("subscribe", KAFKA_TOPIC) \
         .option("startingOffsets", "latest") \
         .option("failOnDataLoss", "false") \
         .load()
     
-    # Parse JSON from Kafka value - use the unified schema
-    if USE_CENTRALIZED_CONFIG:
-        schema = get_traffic_event_schema()
-    else:
-        schema = get_traffic_event_schema_local()
+    # Parse JSON from Kafka value
+    schema = get_taxi_event_schema()
     
     parsed_df = kafka_df \
         .select(
@@ -227,14 +195,13 @@ def add_congestion_prediction(df, model=None):
         )
     else:
         # Rule-based fallback when model not available
-        # Note: Using 'speed' field (matches producer schema)
         return df.withColumn(
             "congestion_level",
             when(
                 (col("is_rush_hour") == 1) & (col("is_manhattan") == 1),
                 "High"
             ).when(
-                (col("is_rush_hour") == 1) | (col("speed") < 10),
+                (col("is_rush_hour") == 1) | (col("speed_mph") < 10),
                 "Medium"
             ).otherwise("Low")
         ).withColumn(
@@ -248,10 +215,10 @@ def add_congestion_prediction(df, model=None):
 def create_aggregations(df):
     """Create windowed aggregations for real-time analytics."""
     
-    # Convert timestamp to proper timestamp type
+    # Convert event_time to timestamp
     df_with_ts = df.withColumn(
         "event_timestamp",
-        to_timestamp(col("timestamp"))  # Use 'timestamp' field from unified schema
+        to_timestamp(col("event_time"))
     )
     
     # Aggregate by cell_id over 1-minute windows
@@ -265,9 +232,11 @@ def create_aggregations(df):
         ) \
         .agg(
             count("*").alias("trip_count"),
-            avg("speed").alias("avg_speed"),  # 'speed' from unified schema
-            spark_max("speed").alias("max_speed"),
-            spark_min("speed").alias("min_speed")
+            avg("speed_mph").alias("avg_speed"),
+            avg("trip_distance").alias("avg_distance"),
+            spark_max("speed_mph").alias("max_speed"),
+            spark_min("speed_mph").alias("min_speed"),
+            avg("fare_amount").alias("avg_fare")
         )
     
     # Add congestion level based on aggregates
@@ -336,7 +305,7 @@ def process_batch(df, epoch_id, model=None):
         # Show sample
         print(f"\n--- Batch {epoch_id} ---")
         predicted_df.select(
-            "cell_id", "hour", "speed", "congestion_level", "is_manhattan"
+            "cell_id", "hour", "speed_mph", "congestion_level", "is_manhattan"
         ).show(10, truncate=False)
 
 
@@ -438,10 +407,10 @@ Spark Session Created
         queries.append(agg_parquet_query)
     
     if args.output in ['kafka', 'all']:
-        print(f"\n📡 Starting Kafka Output to topic: {KAFKA_TOPIC_OUTPUT}...")
+        print("\n📡 Starting Kafka Output...")
         kafka_query = write_to_kafka(
             agg_df, 
-            KAFKA_TOPIC_OUTPUT,  # Use configured output topic
+            "traffic-predictions",
             f"{checkpoint_base}/kafka_output"
         )
         queries.append(kafka_query)

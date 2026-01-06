@@ -60,19 +60,9 @@ CELL_SIZE = 0.01
 # Global flag for HDFS mode
 USE_HDFS = False
 
-# Spark cluster configuration
-SPARK_MASTER_LOCAL = "local[*]"
-SPARK_MASTER_CLUSTER = "spark://localhost:7077"
 
-
-def create_spark_session(use_hdfs=False, use_cluster=False):
-    """
-    Create and configure Spark session.
-    
-    Args:
-        use_hdfs: If True, configure HDFS as default filesystem
-        use_cluster: If True, connect to Spark cluster; else local mode
-    """
+def create_spark_session(use_hdfs=False):
+    """Create and configure Spark session."""
     import os
     
     # Windows workaround: Set Hadoop home for winutils.exe
@@ -84,23 +74,12 @@ def create_spark_session(use_hdfs=False, use_cluster=False):
         if hadoop_home not in os.environ.get('PATH', ''):
             os.environ['PATH'] = os.environ.get('PATH', '') + f";{hadoop_home}\\bin"
     
-    # Determine master URL
-    if use_cluster:
-        master = SPARK_MASTER_CLUSTER
-        shuffle_partitions = 200  # More partitions for cluster
-        mode_str = f"Cluster ({master})"
-    else:
-        master = SPARK_MASTER_LOCAL
-        shuffle_partitions = 20  # Fewer partitions for local
-        mode_str = "Local"
-    
     builder = SparkSession.builder \
         .appName("SmartCityTraffic-DataCleaning") \
-        .master(master) \
         .config("spark.driver.memory", "2g") \
         .config("spark.executor.memory", "2g") \
         .config("spark.sql.parquet.compression.codec", "snappy") \
-        .config("spark.sql.shuffle.partitions", str(shuffle_partitions)) \
+        .config("spark.sql.shuffle.partitions", "20") \
         .config("spark.driver.maxResultSize", "1g")
     
     # Add HDFS configuration if using HDFS
@@ -109,13 +88,7 @@ def create_spark_session(use_hdfs=False, use_cluster=False):
             .config("spark.hadoop.fs.defaultFS", HDFS_NAMENODE) \
             .config("spark.hadoop.dfs.client.use.datanode.hostname", "true")
     
-    # Add cluster-specific configs
-    if use_cluster:
-        builder = builder \
-            .config("spark.submit.deployMode", "client") \
-            .config("spark.dynamicAllocation.enabled", "false")
-    
-    spark = builder.getOrCreate()
+    spark = builder.master("local[*]").getOrCreate()
     
     # Set log level
     spark.sparkContext.setLogLevel("WARN")
@@ -124,7 +97,7 @@ def create_spark_session(use_hdfs=False, use_cluster=False):
     print("Spark Session Created")
     print(f"  App Name: {spark.sparkContext.appName}")
     print(f"  Spark Version: {spark.version}")
-    print(f"  Mode: {mode_str}")
+    print(f"  Master: {spark.sparkContext.master}")
     print(f"  HDFS Mode: {use_hdfs}")
     if use_hdfs:
         print(f"  HDFS Namenode: {HDFS_NAMENODE}")
@@ -366,23 +339,19 @@ def main():
     # Parse arguments
     parser = argparse.ArgumentParser(description="Spark Data Cleaning for Smart City Traffic")
     parser.add_argument("--hdfs", action="store_true", help="Use HDFS for input/output")
-    parser.add_argument("--cluster", action="store_true", 
-                        help="Submit to Spark cluster (spark://localhost:7077) instead of local mode")
     args = parser.parse_args()
     
     use_hdfs = args.hdfs
-    use_cluster = args.cluster
     
     print("\n" + "=" * 60)
     print("SMART CITY TRAFFIC - SPARK DATA CLEANING")
     print("=" * 60)
-    print(f"Storage Mode: {'HDFS' if use_hdfs else 'Local'}")
-    print(f"Spark Mode: {'Cluster' if use_cluster else 'Local'}")
+    print(f"Mode: {'HDFS' if use_hdfs else 'Local'}")
     
     start_time = datetime.now()
     
     # Create Spark session
-    spark = create_spark_session(use_hdfs=use_hdfs, use_cluster=use_cluster)
+    spark = create_spark_session(use_hdfs=use_hdfs)
     
     # Get taxi files based on mode
     if use_hdfs:
